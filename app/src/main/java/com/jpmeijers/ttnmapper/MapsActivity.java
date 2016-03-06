@@ -7,9 +7,11 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Criteria;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
@@ -72,6 +74,43 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   private String loggingFilename;
   private String mqttTopic = "nodes/02031701/packets";
 
+  private LocationManager mLocationManager;
+  private Location currentLocation;
+
+  private final LocationListener mLocationListener = new LocationListener()
+  {
+    @Override
+    public void onLocationChanged(final Location location)
+    {
+      Location mapCenterLocation = new Location("");
+      mapCenterLocation.setLatitude(mMap.getCameraPosition().target.latitude);
+      mapCenterLocation.setLongitude(mMap.getCameraPosition().target.longitude);
+      if (currentLocation == null || location.distanceTo(mapCenterLocation) > 10)
+      {
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+      }
+      currentLocation = location;
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras)
+    {
+
+    }
+
+    @Override
+    public void onProviderEnabled(String provider)
+    {
+
+    }
+
+    @Override
+    public void onProviderDisabled(String provider)
+    {
+
+    }
+  };
+
   Call postToServer(String url, String json, Callback callback) throws IOException
   {
     RequestBody body = RequestBody.create(JSON, json);
@@ -104,6 +143,19 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             // if this button is clicked, close
             // current activity
             //            mTTNMqttClient.disconnect();
+            if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            {
+              return;
+            } else
+            {
+              try
+              {
+                mLocationManager.removeUpdates(mLocationListener);
+              } catch (Exception e)
+              {
+
+              }
+            }
             MapsActivity.this.finish();
           }
         })
@@ -128,7 +180,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   protected void onCreate(Bundle savedInstanceState)
   {
     super.onCreate(savedInstanceState);
-
 
     setContentView(R.layout.activity_maps);
     // Obtain the SupportMapFragment and get notified when the map is ready to be used.
@@ -166,6 +217,12 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         requestFilePermission();
       }
     }
+
+    //subscribe to position updates
+    mLocationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+
+    mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0/*seconds*/,
+        0/*meter*/, mLocationListener);
   }
 
   private void requestFilePermission()
@@ -243,7 +300,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     mMap.setMyLocationEnabled(true);
 
     // Show the current location in Google Map
-    mMap.moveCamera(CameraUpdateFactory.newLatLng(getCurrentLatLng()));
+    mMap.moveCamera(CameraUpdateFactory.newLatLng(getLatestLatLng()));
 
     // Zoom in the Google Map
     mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
@@ -318,7 +375,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     }
   }
 
-  private LatLng getCurrentLatLng()
+  //get old, but latest location - only use for camera position
+  private LatLng getLatestLatLng()
   {
     if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
         && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
@@ -327,7 +385,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     } else
     {
       // Get Current Location
-      Location myLocation = getCurrentLocation();
+      Location myLocation = getLatestLocation();
 
       double latitude = 0;
       double longitude = 0;
@@ -348,7 +406,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     }
   }
 
-  private Location getCurrentLocation()
+  //get old, but latest location - only use for camera position
+  private Location getLatestLocation()
   {
     // Enable MyLocation Layer of Google Map
     if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
@@ -360,12 +419,35 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
     // Create a criteria object to retrieve provider
     Criteria criteria = new Criteria();
+    criteria.setAccuracy(Criteria.ACCURACY_FINE);
 
     // Get the name of the best provider
     String provider = locationManager.getBestProvider(criteria, true);
 
     // Get Current Location
     return locationManager.getLastKnownLocation(provider);
+  }
+
+  private Location getCurrentLocation()
+  {
+    // Enable MyLocation Layer of Google Map
+    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+    {
+      return null;
+    }
+    //    // Get LocationManager object from System Service LOCATION_SERVICE
+    //    LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+    //
+    //    // Create a criteria object to retrieve provider
+    //    Criteria criteria = new Criteria();
+    //    criteria.setAccuracy(Criteria.ACCURACY_FINE);
+    //
+    //    // Get the name of the best provider
+    //    String provider = locationManager.getBestProvider(criteria, true);
+    //
+    //    // Get Current Location
+    //    return locationManager.getLastKnownLocation(provider);
+    return currentLocation;
   }
 
   void mqtt_connect()
@@ -394,6 +476,15 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         {
           // Something went wrong e.g. connection timeout or firewall problems
           Log.d("MQTT", "connect onFailure");
+          final Handler handler = new Handler();
+          handler.postDelayed(new Runnable()
+          {
+            @Override
+            public void run()
+            {
+              mqtt_connect();
+            }
+          }, 1000);
 
         }
       });
@@ -428,6 +519,15 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
           // authorized to subscribe on the specified topic e.g. using wildcards
 
           Log.d("MQTT", "subscribe onFailure");
+          final Handler handler = new Handler();
+          handler.postDelayed(new Runnable()
+          {
+            @Override
+            public void run()
+            {
+              mqtt_subscribe();
+            }
+          }, 1000);
         }
       });
     } catch (MqttException e)
@@ -461,6 +561,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
           // did not had a subscription to the topic the unsubscribe action
           // will be successfully
           Log.d("MQTT", "unsub onFailure");
+          mqtt_disconnect();
         }
       });
     } catch (MqttException e)
@@ -502,6 +603,15 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   public void connectionLost(Throwable cause)
   {
     Log.d("MQTT", "connection lost");
+    final Handler handler = new Handler();
+    handler.postDelayed(new Runnable()
+    {
+      @Override
+      public void run()
+      {
+        mqtt_connect();
+      }
+    }, 1000);
   }
 
   @Override
@@ -560,6 +670,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
 
         Location location = getCurrentLocation();
+        if (location == null) return;
 
         if (mMap != null)
         {
@@ -592,7 +703,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
           }
 
           mMap.addCircle(options);
-          mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+          //mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
         }
 
         if (createFile)

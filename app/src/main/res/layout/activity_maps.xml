@@ -4,4 +4,5 @@
           xmlns:tools="http://schemas.android.com/tools"
           android:layout_width="match_parent"
           android:layout_height="match_parent"
-          tools:context="com.jpmeijers.ttnmapper.MapsActivity"/>
+          tools:context="com.jpmeijers.ttnmapper.MapsActivity"
+          tools:layout="@layout/activity_maps"/>
