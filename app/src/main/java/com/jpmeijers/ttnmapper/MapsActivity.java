@@ -33,7 +33,6 @@ import org.eclipse.paho.client.mqttv3.IMqttActionListener;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
-import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.json.JSONException;
@@ -49,7 +48,6 @@ import java.util.Locale;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
@@ -64,15 +62,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
    */
   private static final int REQUEST_LOCATION_PERMISION = 0;
   private static final int REQUEST_FILE_PERMISION = 1;
-  //  static TTNMqttClient mTTNMqttClient;
-  MqttAndroidClient myMQTTclient;
-  OkHttpClient client = new OkHttpClient();
+
   private GoogleMap mMap;
   private String nodeAddress;
   private boolean createFile;
   private boolean logToServer;
   private String loggingFilename;
-  private String mqttTopic = "nodes/02031701/packets";
+  private String mqttTopic = "nodes/xxx/packets";
 
   private LocationManager mLocationManager;
   private Location currentLocation;
@@ -118,7 +114,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         .url(url)
         .post(body)
         .build();
-    Call call = client.newCall(request);
+    MyApp myApp = (MyApp) getApplication();
+    Call call = myApp.getHttpClient().newCall(request);
     call.enqueue(callback);
     return call;
   }
@@ -142,20 +139,31 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
           {
             // if this button is clicked, close
             // current activity
-            //            mTTNMqttClient.disconnect();
-            if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            MyApp myApp = (MyApp) getApplication();
+
+            myApp.setClosingDown(true);
+
+            //MQTT unsubscribe
+            try
             {
-              return;
-            } else
+              myApp.getMyMQTTclient().disconnect();
+            } catch (MqttException e)
             {
+              e.printStackTrace();
+            }
+
+            //GPS position updates unsubscribe
+            if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
               try
               {
                 mLocationManager.removeUpdates(mLocationListener);
               } catch (Exception e)
               {
-
+                Log.d(TAG, "Can not remove gps updates");
               }
             }
+
+            //end this activity
             MapsActivity.this.finish();
           }
         })
@@ -179,6 +187,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   @Override
   protected void onCreate(Bundle savedInstanceState)
   {
+    Log.d(TAG, "onCreate");
     super.onCreate(savedInstanceState);
 
     setContentView(R.layout.activity_maps);
@@ -256,29 +265,39 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   @Override
   public void onResume()
   {
+    Log.d(TAG, "onResume");
     super.onResume();  // Always call the superclass method first
-
-    //    mqtt_unsubscribe();
-    //    mqtt_connect();
   }
 
   @Override
   public void onDestroy()
   {
+    Log.d(TAG, "onDestroy");
     super.onDestroy();
-    mqtt_unsubscribe();
+
+    //MQTT unsubscribe
+    try {
+      MyApp myApp = (MyApp) getApplication();
+      if (myApp.isClosingDown()) {
+        myApp.getMyMQTTclient().disconnect();
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+//
+//    //GPS position updates unsubscribe
+//    if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+//    {
+//      try
+//      {
+//        mLocationManager.removeUpdates(mLocationListener);
+//      } catch (Exception e)
+//      {
+//        Log.d(TAG, "Can not remove gps updates");
+//      }
+//    }
   }
 
-
-  /**
-   * Manipulates the map once available.
-   * This callback is triggered when the map is ready to be used.
-   * This is where we can add markers or lines, add listeners or move the camera. In this case,
-   * we just add a marker near Sydney, Australia.
-   * If Google Play services is not installed on the device, the user will be prompted to install
-   * it inside the SupportMapFragment. This method will only be triggered once the user has
-   * installed Google Play services and returned to the app.
-   */
   @Override
   public void onMapReady(GoogleMap googleMap)
   {
@@ -452,10 +471,18 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
   void mqtt_connect()
   {
-    String clientId = MqttClient.generateClientId();
-    myMQTTclient =
-        new MqttAndroidClient(this.getApplicationContext(), "tcp://croft.thethings.girovito.nl:1883",
-            clientId);
+    MyApp myApp = (MyApp) getApplication();
+    MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+    Log.d(TAG, "mqtt connect");
+    if (myApp.getMyMQTTclient() == null) {
+      myApp.createMqttClient();
+      myMQTTclient = myApp.getMyMQTTclient();
+    }
+    if (myMQTTclient.isConnected()) {
+      Log.d(TAG, "mqtt already connected, subscribing");
+      mqtt_subscribe();
+      return;
+    }
 
     try
     {
@@ -466,7 +493,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         public void onSuccess(IMqttToken asyncActionToken)
         {
           // We are connected
-          Log.d("MQTT", "connect onSuccess");
+          Log.d(TAG, "mqtt connect onSuccess");
 
           mqtt_subscribe();
         }
@@ -475,7 +502,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         public void onFailure(IMqttToken asyncActionToken, Throwable exception)
         {
           // Something went wrong e.g. connection timeout or firewall problems
-          Log.d("MQTT", "connect onFailure");
+          Log.d(TAG, "mqtt connect onFailure");
           final Handler handler = new Handler();
           handler.postDelayed(new Runnable()
           {
@@ -497,8 +524,12 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
   void mqtt_subscribe()
   {
+    Log.d(TAG, "mqtt subscribe");
     try
     {
+      MyApp myApp = (MyApp) getApplication();
+      MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+
       myMQTTclient.setCallback(this);
 
       IMqttToken subToken = myMQTTclient.subscribe(mqttTopic, 1);
@@ -508,7 +539,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         public void onSuccess(IMqttToken asyncActionToken)
         {
           // The message was published
-          Log.d("MQTT", "subscribe onSuccess");
+          Log.d(TAG, "mqtt subscribe onSuccess");
         }
 
         @Override
@@ -518,7 +549,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
           // The subscription could not be performed, maybe the user was not
           // authorized to subscribe on the specified topic e.g. using wildcards
 
-          Log.d("MQTT", "subscribe onFailure");
+          Log.d(TAG, "mqtt subscribe onFailure");
           final Handler handler = new Handler();
           handler.postDelayed(new Runnable()
           {
@@ -539,9 +570,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
   void mqtt_unsubscribe()
   {
+    Log.d(TAG, "mqtt unsubscribe");
     //unsubscribe
     try
     {
+      MyApp myApp = (MyApp) getApplication();
+      MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+
       IMqttToken unsubToken = myMQTTclient.unsubscribe(mqttTopic);
       unsubToken.setActionCallback(new IMqttActionListener()
       {
@@ -549,7 +584,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         public void onSuccess(IMqttToken asyncActionToken)
         {
           // The subscription could successfully be removed from the client
-          Log.d("MQTT", "unsub onSuccess");
+          Log.d(TAG, "mqtt unsub onSuccess");
           mqtt_disconnect();
         }
 
@@ -560,7 +595,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
           // some error occurred, this is very unlikely as even if the client
           // did not had a subscription to the topic the unsubscribe action
           // will be successfully
-          Log.d("MQTT", "unsub onFailure");
+          Log.d(TAG, "mqtt unsub onFailure");
           mqtt_disconnect();
         }
       });
@@ -572,9 +607,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
   void mqtt_disconnect()
   {
+    Log.d(TAG, "mqtt disconnect");
     //disconnect
     try
     {
+      MyApp myApp = (MyApp) getApplication();
+      MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+
       IMqttToken disconToken = myMQTTclient.disconnect();
       disconToken.setActionCallback(new IMqttActionListener()
       {
@@ -582,7 +621,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         public void onSuccess(IMqttToken asyncActionToken)
         {
           // we are now successfully disconnected
-          Log.d("MQTT", "disconnect onSuccess");
+          Log.d(TAG, "mqtt disconnect onSuccess");
         }
 
         @Override
@@ -590,7 +629,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                               Throwable exception)
         {
           // something went wrong, but probably we are disconnected anyway
-          Log.d("MQTT", "unsub onFailure");
+          Log.d(TAG, "mqtt unsub onFailure");
         }
       });
     } catch (MqttException e)
@@ -602,14 +641,17 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   @Override
   public void connectionLost(Throwable cause)
   {
-    Log.d("MQTT", "connection lost");
+    Log.d(TAG, "mqtt connection lost");
     final Handler handler = new Handler();
     handler.postDelayed(new Runnable()
     {
       @Override
       public void run()
       {
-        mqtt_connect();
+        MyApp myApp = (MyApp) getApplication();
+        if (!myApp.isClosingDown()) {
+          mqtt_connect();
+        }
       }
     }, 1000);
   }
@@ -617,7 +659,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   @Override
   public void messageArrived(String topic, MqttMessage message)
   {
-    Log.d("MQTT", "message arrived");
+    Log.d(TAG, "mqtt message arrived");
     System.out.println("Message arrived: " + message.toString());
     process_packet(message.toString());
   }
@@ -625,7 +667,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   @Override
   public void deliveryComplete(IMqttDeliveryToken token)
   {
-    Log.d("MQTT", "delivery complete");
+    Log.d(TAG, "mqtt delivery complete");
   }
 
 
@@ -645,6 +687,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
       @Override
       public void run()
       {
+        Log.d(TAG, "adding marker");
+
         String gatewayAddr = "null";
         String nodeAddr = "null";
         String time = "0";
@@ -708,6 +752,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         if (createFile)
         {
+          Log.d(TAG, "adding to file");
           try
           {
 
@@ -735,6 +780,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         if (logToServer)
         {
+          Log.d(TAG, "logging to server");
+
           HttpURLConnection connection = null;
           try
           {
