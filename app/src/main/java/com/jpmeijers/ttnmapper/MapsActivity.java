@@ -714,7 +714,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
 
         Location location = getCurrentLocation();
-        if (location == null) return;
+        if (location == null) {
+          Log.d(TAG, "Location is null");
+          return;
+        }
 
         if (mMap != null)
         {
@@ -809,7 +812,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
             String dataString = data.toString();
             System.out.println(dataString);
-            String url = "http://jpmeijers.com/ttnmapper/api/upload.php";
+            String url = "http://ttnmapper.org/api/upload.php";
 
             postToServer(url, dataString, new Callback()
             {
@@ -831,7 +834,16 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
               {
                 if (response.isSuccessful())
                 {
-                  System.out.println("HTTP response: " + response.body().string());
+                  final String returnedString = response.body().string();
+                  System.out.println("HTTP response: " + returnedString);
+                  if (!returnedString.contains("New records created successfully")) {
+                    // Request not successful
+                    runOnUiThread(new Runnable() {
+                      public void run() {
+                        Toast.makeText(getApplicationContext(), "server error: " + returnedString, Toast.LENGTH_SHORT).show();
+                      }
+                    });
+                  }
                   // Do what you want to do with the response.
                 } else
                 {

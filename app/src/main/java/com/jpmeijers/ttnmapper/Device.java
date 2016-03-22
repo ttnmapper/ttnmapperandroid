@@ -56,7 +56,7 @@ public class Device extends AppCompatActivity
   {
 
     EditText editText = (EditText) findViewById(R.id.editText_address);
-    String nodeAddress = editText.getText().toString();
+    String nodeAddress = editText.getText().toString().toUpperCase();
 
     SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
     SharedPreferences.Editor prefsEditor = myPrefs.edit();

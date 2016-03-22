@@ -12,12 +12,12 @@ android {
         applicationId "com.jpmeijers.ttnmapper"
         minSdkVersion 16
         targetSdkVersion 23
-        versionCode 7
-        versionName "2016.03.10b"
+        versionCode 8
+        versionName "2016.03.19"
     }
     buildTypes {
         release {
-            minifyEnabled true
+            minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
