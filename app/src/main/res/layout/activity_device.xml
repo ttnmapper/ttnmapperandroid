@@ -11,13 +11,13 @@
     tools:context="com.jpmeijers.ttnmapper.Device">
 
     <TextView
-        android:id="@+id/textView2"
+        android:id="@+id/tvDescription"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/instructions"/>
 
     <Button
-        android:id="@+id/button_start"
+        android:id="@+id/buttonStart"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
@@ -25,26 +25,13 @@
         android:onClick="onStartClick"
         android:text="Start"/>
 
-    <EditText
-        android:id="@+id/editText_address"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignEnd="@+id/textView2"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignRight="@+id/textView2"
-        android:layout_below="@+id/textView2"
-        android:hint="03FFEEBB"
-        android:maxLength="8"
-        android:text="03FFEEBB"/>
-
     <CheckBox
         android:id="@+id/checkBoxFile"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentStart="true"
-        android:layout_below="@+id/editText_address"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
         android:checked="false"
         android:text="Log to file"/>
 
@@ -52,9 +39,99 @@
         android:id="@+id/checkBoxServer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
         android:layout_alignParentLeft="true"
         android:layout_alignParentStart="true"
-        android:layout_below="@+id/checkBoxFile"
         android:checked="true"
-        android:text="Upload results to our server. This will help us create a global map of actual TTN coverage."/>
+        android:text="Log to server"/>
+
+    <TextView
+        android:id="@+id/textViewServer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true"
+        android:layout_below="@+id/tvDescription"
+        android:paddingTop="15dp"
+        android:text="MQTT Server"/>
+
+    <EditText
+        android:id="@+id/editTextServer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentRight="true"
+        android:layout_alignParentStart="true"
+        android:layout_below="@+id/textViewServer"
+        android:hint="@string/tcp_staging_thethingsnetwork_org_1883"
+        android:singleLine="true"
+        android:text="@string/tcp_staging_thethingsnetwork_org_1883"
+        />
+
+    <EditText
+        android:id="@+id/editTextUser"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignLeft="@+id/editTextPassword"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_alignStart="@+id/editTextPassword"
+        android:layout_below="@+id/editTextServer"
+        android:hint="0000000000000000"
+        android:singleLine="true"
+        />
+
+    <TextView
+        android:id="@+id/textViewUser"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true"
+        android:layout_below="@+id/editTextServer"
+        android:text="App EUI"/>
+
+    <EditText
+        android:id="@+id/editTextPassword"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_below="@+id/editTextUser"
+        android:layout_toEndOf="@+id/textViewTopic"
+        android:layout_toRightOf="@+id/textViewTopic"
+        android:hint="s0m3We1rD/enCrypted+String="
+        android:singleLine="true"/>
+
+    <TextView
+        android:id="@+id/textViewPassword"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true"
+        android:layout_below="@+id/editTextUser"
+        android:text="Access Key"/>
+
+    <EditText
+        android:id="@+id/editTextTopic"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentRight="true"
+        android:layout_below="@+id/editTextPassword"
+        android:layout_toEndOf="@+id/textViewTopic"
+        android:layout_toRightOf="@+id/textViewTopic"
+        android:hint="+/devices/#"
+        android:singleLine="true"
+        android:text="+/devices/#"/>
+
+    <TextView
+        android:id="@+id/textViewTopic"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true"
+        android:layout_below="@+id/editTextPassword"
+        android:text="MQTT Topic"/>
+
 </RelativeLayout>

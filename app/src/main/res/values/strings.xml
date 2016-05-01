@@ -8,7 +8,7 @@
         \n\nThis app will use your phone\'s GPS to determine the location where a packet was sent from.
         The LoRa node therefore needs to be as close as possible to your smartphone.
 
-        \n\nEnter your LoRa device address below, and then tap on start.</string>
+        \n\nEnter your TTN MQTT details below, and then tap on start.</string>
     <string name="title_activity_maps">Map</string>
     <string name="permission_location_rationale">This app needs to know your location to geotag TTN packets.</string>
     <string name="ok">OK</string>
@@ -17,4 +17,5 @@
     <string name="permission_file_rationale">We need to be able to write to your phone\'s storage to log the packets to a file.</string>
     <string name="permission_available_file">Permission to write a file granted.</string>
     <string name="permissions_not_file">No permission to write a file</string>
+    <string name="tcp_staging_thethingsnetwork_org_1883">tcp://staging.thethingsnetwork.org:1883</string>
 </resources>

@@ -33,14 +33,15 @@ import org.eclipse.paho.client.mqttv3.IMqttActionListener;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.net.HttpURLConnection;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -63,12 +64,17 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   private static final int REQUEST_LOCATION_PERMISION = 0;
   private static final int REQUEST_FILE_PERMISION = 1;
 
+  private int mqtt_retry_count = 0;
+
   private GoogleMap mMap;
   private String nodeAddress;
   private boolean createFile;
   private boolean logToServer;
   private String loggingFilename;
-  private String mqttTopic = "nodes/xxx/packets";
+  private String mqttServer;
+  private String mqttUser;
+  private String mqttPassword;
+  private String mqttTopic;
 
   private LocationManager mLocationManager;
   private Location currentLocation;
@@ -198,11 +204,15 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     mapFragment.setRetainInstance(true);
 
     Intent intent = getIntent();
-    nodeAddress = intent.getStringExtra("address");
+    mqttServer = intent.getStringExtra("server");
+    mqttPassword = intent.getStringExtra("password");
+    mqttUser = intent.getStringExtra("user");
+    mqttTopic = intent.getStringExtra("topic");
+    //nodeAddress = intent.getStringExtra("address");
     createFile = intent.getBooleanExtra("createFile", false);
     logToServer = intent.getBooleanExtra("logToServer", false);
 
-    mqttTopic = "nodes/" + nodeAddress + "/packets";
+    //mqttTopic = "nodes/" + nodeAddress + "/packets";
 
     Toast.makeText(getApplicationContext(), "Address: " + nodeAddress + ", " + createFile + ", " + logToServer, Toast.LENGTH_SHORT).show();
 
@@ -475,7 +485,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
     Log.d(TAG, "mqtt connect");
     if (myApp.getMyMQTTclient() == null) {
-      myApp.createMqttClient();
+      myApp.createMqttClient(mqttServer);
       myMQTTclient = myApp.getMyMQTTclient();
     }
     if (myMQTTclient.isConnected()) {
@@ -486,7 +496,17 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
     try
     {
-      IMqttToken token = myMQTTclient.connect();
+      MqttConnectOptions connOpt;
+      connOpt = new MqttConnectOptions();
+      connOpt.setCleanSession(true);
+      connOpt.setKeepAliveInterval(30);
+      if (!mqttPassword.isEmpty())
+      {
+        connOpt.setUserName(mqttUser);
+        connOpt.setPassword(mqttPassword.toCharArray());
+      }
+
+      IMqttToken token = myMQTTclient.connect(connOpt);
       token.setActionCallback(new IMqttActionListener()
       {
         @Override
@@ -494,7 +514,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         {
           // We are connected
           Log.d(TAG, "mqtt connect onSuccess");
-
+          mqtt_retry_count = 0;
           mqtt_subscribe();
         }
 
@@ -503,6 +523,22 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         {
           // Something went wrong e.g. connection timeout or firewall problems
           Log.d(TAG, "mqtt connect onFailure");
+
+          mqtt_retry_count++;
+
+          if (mqtt_retry_count > 1 && mqtt_retry_count < 5)
+          {
+            runOnUiThread(new Runnable()
+            {
+              public void run()
+              {
+                Toast.makeText(getApplicationContext(), "Can not connect to MQTT. Check your internet connection, AppEUI and Access Key.", Toast.LENGTH_LONG).show();
+              }
+            });
+          }
+
+          exception.printStackTrace();
+
           final Handler handler = new Handler();
           handler.postDelayed(new Runnable()
           {
@@ -512,8 +548,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
               mqtt_connect();
             }
           }, 1000);
-
         }
+
       });
     } catch (MqttException e)
     {
@@ -661,7 +697,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   {
     Log.d(TAG, "mqtt message arrived");
     System.out.println("Message arrived: " + message.toString());
-    process_packet(message.toString());
+    process_packet(message.toString(), topic);
   }
 
   @Override
@@ -671,16 +707,28 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   }
 
 
-  void process_packet(String jsonData)
+  void process_packet(String jsonData, String topic)
   {
+    /* New format:
+  {
+    "payload":"WA==","port":1,"counter":3293,
+    "metadata":
+    [
+      {"frequency":868.1,"datarate":"SF7BW125","codingrate":"4/5","gateway_timestamp":472142790,"gateway_time":"2016-05-01T19:44:53.877604706Z","channel":0,"server_time":"2016-05-01T19:44:53.756166662Z","rssi":-66,"lsnr":10,"rfchain":0,"crc":1,"modulation":"LORA","gateway_eui":"B827EBFFFF5FE05C","altitude":0,"longitude":4.63576,"latitude":52.37447},
+      {"frequency":868.1,"datarate":"SF7BW125","codingrate":"4/5","gateway_timestamp":2320255000,"gateway_time":"2016-05-01T19:44:53.93683773Z","channel":0,"server_time":"2016-05-01T19:44:53.769196285Z","rssi":-46,"lsnr":10,"rfchain":0,"crc":1,"modulation":"LORA","gateway_eui":"00FE34FFFFD4578D","altitude":0,"longitude":0,"latitude":0}
+    ]
+  }
+    */
 
     class AddMarker implements Runnable
     {
 
+      private String topic;
       private String jsonData;
 
-      public AddMarker(String jsonData)
+      public AddMarker(String jsonData, String topic)
       {
+        this.topic = topic;
         this.jsonData = jsonData;
       }
 
@@ -689,189 +737,336 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
       {
         Log.d(TAG, "adding marker");
 
-        String gatewayAddr = "null";
-        String nodeAddr = "null";
-        String time = "0";
-        double freq = 0;
-        String dataRate = "null";
-        double rssi = 0;
-        double snr = 0;
+        String[] apart = topic.split("/");
+
+        //filter incorrect topics
+        if (apart.length != 4)
+        {
+          return;
+        }
+
+        if (!apart[3].equals("up"))
+        {
+          return;
+        }
+
+        String devEUI = apart[2];
+
+        //don't log if we don't know our location
+        Location location = getCurrentLocation();
+        if (location == null) {
+          Log.d(TAG, "Location is null");
+
+          runOnUiThread(new Runnable()
+          {
+            public void run()
+            {
+              Toast.makeText(getApplicationContext(), "Can not get GPS location", Toast.LENGTH_SHORT).show();
+            }
+          });
+
+          return;
+        }
+
+        //correct type of packet
+        System.out.println(topic);
+        System.out.println(jsonData);
 
         try
         {
           JSONObject received_data = new JSONObject(jsonData);
+          JSONArray gateways = received_data.getJSONArray("metadata");
 
-          gatewayAddr = received_data.getString("gatewayEui");
-          nodeAddr = received_data.getString("nodeEui");
-          time = received_data.getString("time");
-          freq = received_data.getDouble("frequency");
-          dataRate = received_data.getString("dataRate");
-          rssi = received_data.getDouble("rssi");
-          snr = received_data.getDouble("snr");
+          for (int i = 0; i < gateways.length(); i++)
+          {
+            JSONObject gateway = gateways.getJSONObject(i);
+            try
+            {
+              addMarker(location, gateway.getDouble("rssi"));
+              if (createFile)
+              {
+                savePacket(location, gateway, topic);
+              }
+              if (logToServer)
+              {
+                uploadPacket(location, gateway, devEUI);
+                uploadGateway(gateway);
+              }
+            } catch (JSONException e)
+            {
+              e.printStackTrace();
+            }
+          }
+
+          //          gatewayAddr = received_data.getString("gatewayEui");
+          //          nodeAddr = received_data.getString("nodeEui");
+          //          time = received_data.getString("time");
+          //          freq = received_data.getDouble("frequency");
+          //          dataRate = received_data.getString("dataRate");
+          //          rssi = received_data.getDouble("rssi");
+          //          snr = received_data.getDouble("snr");
         } catch (JSONException e)
         {
           e.printStackTrace();
         }
 
-        Location location = getCurrentLocation();
-        if (location == null) {
-          Log.d(TAG, "Location is null");
-          return;
-        }
-
-        if (mMap != null)
-        {
-          CircleOptions options = new CircleOptions()
-              .center(new LatLng(location.getLatitude(), location.getLongitude()))
-              .radius(15)
-              .strokeColor(0x00000000);
-
-          if (rssi == 0)
-          {
-            options.fillColor(0x7f000000);
-          } else if (rssi < -120)
-          {
-            options.fillColor(0x7f0000ff);
-          } else if (rssi < -110)
-          {
-            options.fillColor(0x7f00ffff);
-          } else if (rssi < -100)
-          {
-            options.fillColor(0x7f00ff00);
-          } else if (rssi < -90)
-          {
-            options.fillColor(0x7fffff00);
-          } else if (rssi < -80)
-          {
-            options.fillColor(0x7fff7f00);
-          } else
-          {
-            options.fillColor(0x7fff0000);
-          }
-
-          mMap.addCircle(options);
-          //mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
-        }
-
-        if (createFile)
-        {
-          Log.d(TAG, "adding to file");
-          try
-          {
-
-          /*
-            02031701
-
-            time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
-           */
-            String data =
-                time + "," + nodeAddr + "," + gatewayAddr + "," +
-                    dataRate + "," + snr + "," + rssi + "," +
-                    freq + "," + location.getLatitude() + "," + location.getLongitude() + "\n";
-
-            FileWriter writer = new FileWriter(loggingFilename, true);
-            // Writes the content to the file
-            writer.write(data);
-            writer.flush();
-            writer.close();
-            System.out.println("File written");
-          } catch (IOException e)
-          {
-            Log.e("Exception", "File write failed: " + e.toString());
-          }
-        }
-
-        if (logToServer)
-        {
-          Log.d(TAG, "logging to server");
-
-          HttpURLConnection connection = null;
-          try
-          {
-            System.out.println("Datarate: \"" + dataRate + "\"");
-            //object for storing Json
-            JSONObject data = new JSONObject();
-            data.put("time", time);
-            data.put("nodeaddr", nodeAddr);
-            data.put("gwaddr", gatewayAddr);
-            data.put("datarate", dataRate);
-            data.put("snr", snr);
-            data.put("rssi", rssi);
-            data.put("freq", freq);
-            data.put("lat", location.getLatitude());
-            data.put("lon", location.getLongitude());
-            if (location.hasAltitude())
-            {
-              data.put("alt", location.getAltitude());
-            }
-            if (location.hasAccuracy())
-            {
-              data.put("accuracy", location.getAccuracy());
-            }
-            data.put("provider", location.getProvider());
-
-            String dataString = data.toString();
-            System.out.println(dataString);
-            String url = "http://ttnmapper.org/api/upload.php";
-
-            postToServer(url, dataString, new Callback()
-            {
-              @Override
-              public void onFailure(Call call, IOException e)
-              {
-                runOnUiThread(new Runnable()
-                {
-                  public void run()
-                  {
-                    Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
-                  }
-                });
-                e.printStackTrace();
-              }
-
-              @Override
-              public void onResponse(Call call, Response response) throws IOException
-              {
-                if (response.isSuccessful())
-                {
-                  final String returnedString = response.body().string();
-                  System.out.println("HTTP response: " + returnedString);
-                  if (!returnedString.contains("New records created successfully")) {
-                    // Request not successful
-                    runOnUiThread(new Runnable() {
-                      public void run() {
-                        Toast.makeText(getApplicationContext(), "server error: " + returnedString, Toast.LENGTH_SHORT).show();
-                      }
-                    });
-                  }
-                  // Do what you want to do with the response.
-                } else
-                {
-                  // Request not successful
-                  runOnUiThread(new Runnable()
-                  {
-                    public void run()
-                    {
-                      Toast.makeText(getApplicationContext(), "server error", Toast.LENGTH_SHORT).show();
-                    }
-                  });
-                }
-              }
-            });
-          } catch (JSONException e)
-          {
-            e.printStackTrace();
-          } catch (IOException e)
-          {
-            e.printStackTrace();
-          }
-        }
       }
     } //end of AddMarker inner class
 
     // start the inner class runnable
-    Runnable addMarker = new AddMarker(jsonData);
+    Runnable addMarker = new AddMarker(jsonData, topic);
     runOnUiThread(addMarker);
 
+  }
+
+  void addMarker(Location location, double rssi)
+  {
+    if (mMap != null)
+    {
+      CircleOptions options = new CircleOptions()
+          .center(new LatLng(location.getLatitude(), location.getLongitude()))
+          .radius(15)
+          .strokeColor(0x00000000);
+
+      if (rssi == 0)
+      {
+        options.fillColor(0x7f000000);
+      } else if (rssi < -120)
+      {
+        options.fillColor(0x7f0000ff);
+      } else if (rssi < -110)
+      {
+        options.fillColor(0x7f00ffff);
+      } else if (rssi < -100)
+      {
+        options.fillColor(0x7f00ff00);
+      } else if (rssi < -90)
+      {
+        options.fillColor(0x7fffff00);
+      } else if (rssi < -80)
+      {
+        options.fillColor(0x7fff7f00);
+      } else
+      {
+        options.fillColor(0x7fff0000);
+      }
+
+      mMap.addCircle(options);
+      //mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+    }
+  }
+
+  void savePacket(Location location, JSONObject gateway, String topic)
+  {
+    //{"frequency":868.1,
+    // "datarate":"SF7BW125",
+    // "codingrate":"4/5",
+    // "gateway_timestamp":472142790,
+    // "gateway_time":"2016-05-01T19:44:53.877604706Z",
+    // "channel":0,
+    // "server_time":"2016-05-01T19:44:53.756166662Z",
+    // "rssi":-66,
+    // "lsnr":10,
+    // "rfchain":0,
+    // "crc":1,
+    // "modulation":"LORA",
+    // "gateway_eui":"B827EBFFFF5FE05C",
+    // "altitude":0,
+    // "longitude":4.63576,
+    // "latitude":52.37447}
+    try
+    {
+      String gatewayAddr = gateway.getString("gateway_eui");
+      String time = gateway.getString("server_time");
+      double freq = gateway.getDouble("frequency");
+      String dataRate = gateway.getString("datarate");
+      double rssi = gateway.getDouble("rssi");
+      double snr = gateway.getDouble("lsnr");
+
+      Log.d(TAG, "adding to file");
+      try
+      {
+
+    /*
+      02031701
+
+      time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
+     */
+        String data =
+            time + "," + topic + "," + gatewayAddr + "," +
+                dataRate + "," + snr + "," + rssi + "," +
+                freq + "," + location.getLatitude() + "," + location.getLongitude() + "\n";
+
+        FileWriter writer = new FileWriter(loggingFilename, true);
+        // Writes the content to the file
+        writer.write(data);
+        writer.flush();
+        writer.close();
+        System.out.println("File written");
+      } catch (IOException e)
+      {
+        Log.e("Exception", "File write failed: " + e.toString());
+      }
+    } catch (JSONException e)
+    {
+      e.printStackTrace();
+    }
+  }
+
+  void uploadPacket(Location location, JSONObject gateway, String devEUI)
+  {
+    try
+    {
+      String gatewayAddr = gateway.getString("gateway_eui");
+      String time = gateway.getString("server_time");
+      double freq = gateway.getDouble("frequency");
+      String dataRate = gateway.getString("datarate");
+      double rssi = gateway.getDouble("rssi");
+      double snr = gateway.getDouble("lsnr");
+
+      Log.d(TAG, "logging packet to server");
+
+      //object for storing Json
+      JSONObject data = new JSONObject();
+      data.put("time", time);
+      data.put("nodeaddr", devEUI);
+      data.put("gwaddr", gatewayAddr);
+      data.put("datarate", dataRate);
+      data.put("snr", snr);
+      data.put("rssi", rssi);
+      data.put("freq", freq);
+      data.put("lat", location.getLatitude());
+      data.put("lon", location.getLongitude());
+      if (location.hasAltitude())
+      {
+        data.put("alt", location.getAltitude());
+      }
+      if (location.hasAccuracy())
+      {
+        data.put("accuracy", location.getAccuracy());
+      }
+      data.put("provider", location.getProvider());
+
+      String dataString = data.toString();
+      System.out.println(dataString);
+      String url = "http://ttnmapper.org/api/upload.php";
+
+      //post packet
+      postToServer(url, dataString, new Callback()
+      {
+        @Override
+        public void onFailure(Call call, IOException e)
+        {
+          runOnUiThread(new Runnable()
+          {
+            public void run()
+            {
+              Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
+            }
+          });
+          e.printStackTrace();
+        }
+
+        @Override
+        public void onResponse(Call call, Response response) throws IOException
+        {
+          if (response.isSuccessful())
+          {
+            final String returnedString = response.body().string();
+            System.out.println("HTTP response: " + returnedString);
+            if (!returnedString.contains("New records created successfully"))
+            {
+              // Request not successful
+              runOnUiThread(new Runnable()
+              {
+                public void run()
+                {
+                  Toast.makeText(getApplicationContext(), "server error: " + returnedString, Toast.LENGTH_SHORT).show();
+                }
+              });
+            }
+            // Do what you want to do with the response.
+          } else
+          {
+            // Request not successful
+            runOnUiThread(new Runnable()
+            {
+              public void run()
+              {
+                Toast.makeText(getApplicationContext(), "server error", Toast.LENGTH_SHORT).show();
+              }
+            });
+          }
+        }
+      });
+
+    } catch (JSONException e)
+    {
+      e.printStackTrace();
+    } catch (IOException e)
+    {
+      e.printStackTrace();
+    }
+  }
+
+
+  void uploadGateway(JSONObject gateway)
+  {
+    try
+    {
+      String gatewayAddr = gateway.getString("gateway_eui");
+      String time = gateway.getString("server_time");
+      double lat = gateway.getDouble("latitude");
+      double lon = gateway.getDouble("longitude");
+      double alt = gateway.getDouble("altitude");
+
+      Log.d(TAG, "logging gateway to server");
+
+      //object for storing Json
+      JSONObject data = new JSONObject();
+      data.put("time", time);
+      data.put("gwaddr", gatewayAddr);
+      data.put("lat", lat);
+      data.put("lon", lon);
+      data.put("alt", alt);
+
+      String dataString = data.toString();
+      System.out.println(dataString);
+      String url = "http://ttnmapper.org/api/update_gateway.php";
+
+      //post packet
+      postToServer(url, dataString, new Callback()
+      {
+        @Override
+        public void onFailure(Call call, IOException e)
+        {
+          runOnUiThread(new Runnable()
+          {
+            public void run()
+            {
+              Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
+            }
+          });
+          e.printStackTrace();
+        }
+
+        @Override
+        public void onResponse(Call call, Response response) throws IOException
+        {
+          if (response.isSuccessful())
+          {
+            final String returnedString = response.body().string();
+            System.out.println("HTTP response: " + returnedString);
+          }
+        }
+      });
+
+    } catch (JSONException e)
+    {
+      e.printStackTrace();
+    } catch (IOException e)
+    {
+      e.printStackTrace();
+    }
   }
 }

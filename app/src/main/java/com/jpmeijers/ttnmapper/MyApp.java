@@ -45,8 +45,10 @@ public class MyApp extends Application {
         this.client = newClient;
     }
 
-    public void createMqttClient() {
+    public void createMqttClient(String serverAddress)
+    {
         String mqttClientId = MqttClient.generateClientId();
-        myMQTTclient = new MqttAndroidClient(this.getApplicationContext(), "tcp://croft.thethings.girovito.nl:1883", mqttClientId);
+        System.out.println("Server address: " + serverAddress);
+        myMQTTclient = new MqttAndroidClient(this.getApplicationContext(), /*"tcp://staging.thethingsnetwork.org:1883"*/serverAddress/*"tcp://croft.thethings.girovito.nl:1883"*/, mqttClientId);
     }
 }
