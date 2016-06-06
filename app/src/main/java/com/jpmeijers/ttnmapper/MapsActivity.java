@@ -4,13 +4,13 @@ import android.Manifest;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
@@ -42,9 +42,6 @@ import org.json.JSONObject;
 
 import java.io.FileWriter;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -54,246 +51,236 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
-    implements OnMapReadyCallback, MqttCallback, ActivityCompat.OnRequestPermissionsResultCallback
-{
-  public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-  public static final String TAG = "TTNMapsActivity";
-  /**
-   * Id to identify a camera permission request.
-   */
-  private static final int REQUEST_LOCATION_PERMISION = 0;
-  private static final int REQUEST_FILE_PERMISION = 1;
+        implements OnMapReadyCallback, MqttCallback, ActivityCompat.OnRequestPermissionsResultCallback {
+    public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    public static final String TAG = "TTNMapsActivity";
+    /**
+     * Id to identify a camera permission request.
+     */
+    private static final int REQUEST_LOCATION_PERMISSION = 0;
+    private static final int REQUEST_FILE_PERMISSION = 1;
 
-  private int mqtt_retry_count = 0;
+    private int mqtt_retry_count = 0;
 
-  private GoogleMap mMap;
-  private String nodeAddress;
-  private boolean createFile;
-  private boolean logToServer;
-  private String loggingFilename;
-  private String mqttServer;
-  private String mqttUser;
-  private String mqttPassword;
-  private String mqttTopic;
+    private GoogleMap mMap;
+    private boolean createFile;
+    private String logType;
+    private String loggingFilename;
+    private String mqttServer;
+    private String mqttUser;
+    private String mqttPassword = "";
+    private String mqttTopic;
+    private String backend;
+    private String nodeaddr; //only for croft backend
+    private String experimentName;
 
-  private LocationManager mLocationManager;
-  private Location currentLocation;
+    private LocationManager mLocationManager;
+    private Location currentLocation;
 
-  private final LocationListener mLocationListener = new LocationListener()
-  {
-    @Override
-    public void onLocationChanged(final Location location)
-    {
-      Location mapCenterLocation = new Location("");
-      mapCenterLocation.setLatitude(mMap.getCameraPosition().target.latitude);
-      mapCenterLocation.setLongitude(mMap.getCameraPosition().target.longitude);
-      if (currentLocation == null || location.distanceTo(mapCenterLocation) > 10)
-      {
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
-      }
-      currentLocation = location;
+    private final LocationListener mLocationListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(final Location location) {
+            Location mapCenterLocation = new Location("");
+            mapCenterLocation.setLatitude(mMap.getCameraPosition().target.latitude);
+            mapCenterLocation.setLongitude(mMap.getCameraPosition().target.longitude);
+            if (currentLocation == null || location.distanceTo(mapCenterLocation) > 10) {
+                mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+            }
+            currentLocation = location;
+        }
+
+        @Override
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+
+        }
+
+        @Override
+        public void onProviderEnabled(String provider) {
+
+        }
+
+        @Override
+        public void onProviderDisabled(String provider) {
+
+        }
+    };
+
+    Call postToServer(String url, String json, Callback callback) throws IOException {
+        RequestBody body = RequestBody.create(JSON, json);
+        Request request = new Request.Builder()
+                .url(url)
+                .post(body)
+                .build();
+        MyApp myApp = (MyApp) getApplication();
+        Call call = myApp.getHttpClient().newCall(request);
+        call.enqueue(callback);
+        return call;
     }
 
     @Override
-    public void onStatusChanged(String provider, int status, Bundle extras)
-    {
+    public void onBackPressed() {
+        //warn and ask if we should stop
+        AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
 
+        // set title
+        alertDialogBuilder.setTitle("Exit");
+
+        // set dialog message
+        alertDialogBuilder
+                .setMessage("You touched the back button. Do you want to stop logging?")
+                .setCancelable(false)
+                .setPositiveButton("Stop logging", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int id) {
+                        // if this button is clicked, close
+                        // current activity
+                        MyApp myApp = (MyApp) getApplication();
+
+                        myApp.setClosingDown(true);
+
+                        //MQTT unsubscribe
+                        try {
+                            myApp.getMyMQTTclient().disconnect();
+                        } catch (MqttException e) {
+                            e.printStackTrace();
+                        }
+
+                        //GPS position updates unsubscribe
+                        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                            try {
+                                mLocationManager.removeUpdates(mLocationListener);
+                            } catch (Exception e) {
+                                Log.d(TAG, "Can not remove gps updates");
+                            }
+                        }
+
+                        //end this activity
+                        MapsActivity.this.finish();
+                    }
+                })
+                .setNegativeButton("Continue logging", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface dialog, int id) {
+                        // if this button is clicked, just close
+                        // the dialog box and do nothing
+                        dialog.cancel();
+                    }
+                });
+
+        // create alert dialog
+        AlertDialog alertDialog = alertDialogBuilder.create();
+
+        // show it
+        alertDialog.show();
     }
 
     @Override
-    public void onProviderEnabled(String provider)
-    {
+    protected void onCreate(Bundle savedInstanceState) {
+        Log.d(TAG, "onCreate");
+        super.onCreate(savedInstanceState);
 
+        setContentView(R.layout.activity_maps);
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                .findFragmentById(R.id.map);
+        mapFragment.getMapAsync(this);
+        mapFragment.setRetainInstance(true);
+
+        Intent intent = getIntent();
+
+        SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+        backend = myPrefs.getString("backend", "staging");
+        if (backend.equals("croft")) {
+            mqttServer = "tcp://croft.thethings.girovito.nl:1883";
+            nodeaddr = myPrefs.getString("nodeaddress", "03FFEEBB");
+            mqttTopic = myPrefs.getString("mqtttopiccroft", "nodes/" + nodeaddr + "/packets");
+        } else {
+            mqttServer = "tcp://staging.thethingsnetwork.org:1883";
+            mqttUser = myPrefs.getString("mqttusername", "");
+            mqttPassword = myPrefs.getString("mqttpassword", "");
+            mqttTopic = myPrefs.getString("mqtttopicstaging", "+/devices/#");
+        }
+        //nodeAddress = intent.getStringExtra("address");
+        createFile = myPrefs.getBoolean("savefile", true);
+        logType = myPrefs.getString("logging_type", "global");
+        experimentName = myPrefs.getString("experimentname", "experiment " + Math.random() * 999);
+
+        //mqttTopic = "nodes/" + nodeAddress + "/packets";
+
+        loggingFilename = myPrefs.getString("filename", "ttnmapper_logfile.csv");
+
+        String loggingTo = logType;
+        if (logType.equals("local")) {
+            if (createFile) {
+                loggingTo = loggingFilename;
+            } else {
+                loggingTo = "only your screen";
+            }
+        }
+        Toast.makeText(getApplicationContext(), "Logging to " + loggingTo + " using backend " + mqttServer, Toast.LENGTH_LONG).show();
+
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        mqtt_connect();
+
+        // Check permissions
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPositionPermission();
+        }
+        if (createFile) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                requestFilePermission();
+            }
+        }
+
+        //subscribe to position updates
+        mLocationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+
+        mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0/*seconds*/,
+                0/*meter*/, mLocationListener);
+    }
+
+    private void requestFilePermission() {
+        Log.i(TAG, "FILE permission has NOT been granted. Requesting permission.");
+
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
+            Log.i(TAG, "Displaying file permission rationale to provide additional context.");
+            Snackbar.make(findViewById(R.id.map), R.string.permission_file_rationale,
+                    Snackbar.LENGTH_INDEFINITE)
+                    .setAction(R.string.ok, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View view) {
+                            ActivityCompat.requestPermissions(MapsActivity.this,
+                                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                                    REQUEST_FILE_PERMISSION);
+                        }
+                    })
+                    .show();
+        } else {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    REQUEST_FILE_PERMISSION);
+        }
     }
 
     @Override
-    public void onProviderDisabled(String provider)
-    {
-
+    public void onResume() {
+        Log.d(TAG, "onResume");
+        super.onResume();  // Always call the superclass method first
     }
-  };
 
-  Call postToServer(String url, String json, Callback callback) throws IOException
-  {
-    RequestBody body = RequestBody.create(JSON, json);
-    Request request = new Request.Builder()
-        .url(url)
-        .post(body)
-        .build();
-    MyApp myApp = (MyApp) getApplication();
-    Call call = myApp.getHttpClient().newCall(request);
-    call.enqueue(callback);
-    return call;
-  }
+    @Override
+    public void onDestroy() {
+        Log.d(TAG, "onDestroy");
+        super.onDestroy();
 
-  @Override
-  public void onBackPressed()
-  {
-    //warn and ask if we should stop
-    AlertDialog.Builder alertDialogBuilder = new AlertDialog.Builder(this);
-
-    // set title
-    alertDialogBuilder.setTitle("Exit");
-
-    // set dialog message
-    alertDialogBuilder
-        .setMessage("You touched the back button. Do you want to stop logging?")
-        .setCancelable(false)
-        .setPositiveButton("Stop logging", new DialogInterface.OnClickListener()
-        {
-          public void onClick(DialogInterface dialog, int id)
-          {
-            // if this button is clicked, close
-            // current activity
+        //MQTT unsubscribe
+        try {
             MyApp myApp = (MyApp) getApplication();
-
-            myApp.setClosingDown(true);
-
-            //MQTT unsubscribe
-            try
-            {
-              myApp.getMyMQTTclient().disconnect();
-            } catch (MqttException e)
-            {
-              e.printStackTrace();
+            if (myApp.isClosingDown()) {
+                myApp.getMyMQTTclient().disconnect();
             }
-
-            //GPS position updates unsubscribe
-            if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-              try
-              {
-                mLocationManager.removeUpdates(mLocationListener);
-              } catch (Exception e)
-              {
-                Log.d(TAG, "Can not remove gps updates");
-              }
-            }
-
-            //end this activity
-            MapsActivity.this.finish();
-          }
-        })
-        .setNegativeButton("Continue logging", new DialogInterface.OnClickListener()
-        {
-          public void onClick(DialogInterface dialog, int id)
-          {
-            // if this button is clicked, just close
-            // the dialog box and do nothing
-            dialog.cancel();
-          }
-        });
-
-    // create alert dialog
-    AlertDialog alertDialog = alertDialogBuilder.create();
-
-    // show it
-    alertDialog.show();
-  }
-
-  @Override
-  protected void onCreate(Bundle savedInstanceState)
-  {
-    Log.d(TAG, "onCreate");
-    super.onCreate(savedInstanceState);
-
-    setContentView(R.layout.activity_maps);
-    // Obtain the SupportMapFragment and get notified when the map is ready to be used.
-    SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-        .findFragmentById(R.id.map);
-    mapFragment.getMapAsync(this);
-    mapFragment.setRetainInstance(true);
-
-    Intent intent = getIntent();
-    mqttServer = intent.getStringExtra("server");
-    mqttPassword = intent.getStringExtra("password");
-    mqttUser = intent.getStringExtra("user");
-    mqttTopic = intent.getStringExtra("topic");
-    //nodeAddress = intent.getStringExtra("address");
-    createFile = intent.getBooleanExtra("createFile", false);
-    logToServer = intent.getBooleanExtra("logToServer", false);
-
-    //mqttTopic = "nodes/" + nodeAddress + "/packets";
-
-    Toast.makeText(getApplicationContext(), "Address: " + nodeAddress + ", " + createFile + ", " + logToServer, Toast.LENGTH_SHORT).show();
-
-    SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US);
-    loggingFilename = Environment.getExternalStorageDirectory() + "/" + sdf.format(new Date()) + ".csv";
-    System.out.println("Writing to file " + loggingFilename);
-
-    getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-    mqtt_connect();
-
-    // Check permissions
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-    {
-      requestPositionPermission();
-    }
-    if (createFile)
-    {
-      if (ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED)
-      {
-        requestFilePermission();
-      }
-    }
-
-    //subscribe to position updates
-    mLocationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
-    mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0/*seconds*/,
-        0/*meter*/, mLocationListener);
-  }
-
-  private void requestFilePermission()
-  {
-    Log.i(TAG, "FILE permission has NOT been granted. Requesting permission.");
-
-    if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.WRITE_EXTERNAL_STORAGE))
-    {
-      Log.i(TAG, "Displaying file permission rationale to provide additional context.");
-      Snackbar.make(findViewById(R.id.map), R.string.permission_file_rationale,
-          Snackbar.LENGTH_INDEFINITE)
-          .setAction(R.string.ok, new View.OnClickListener()
-          {
-            @Override
-            public void onClick(View view)
-            {
-              ActivityCompat.requestPermissions(MapsActivity.this,
-                  new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                  REQUEST_FILE_PERMISION);
-            }
-          })
-          .show();
-    } else
-    {
-      ActivityCompat.requestPermissions(this,
-          new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-          REQUEST_FILE_PERMISION);
-    }
-  }
-
-  @Override
-  public void onResume()
-  {
-    Log.d(TAG, "onResume");
-    super.onResume();  // Always call the superclass method first
-  }
-
-  @Override
-  public void onDestroy()
-  {
-    Log.d(TAG, "onDestroy");
-    super.onDestroy();
-
-    //MQTT unsubscribe
-    try {
-      MyApp myApp = (MyApp) getApplication();
-      if (myApp.isClosingDown()) {
-        myApp.getMyMQTTclient().disconnect();
-      }
-    } catch (Exception e) {
-      e.printStackTrace();
-    }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 //
 //    //GPS position updates unsubscribe
 //    if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
@@ -306,409 +293,352 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 //        Log.d(TAG, "Can not remove gps updates");
 //      }
 //    }
-  }
-
-  @Override
-  public void onMapReady(GoogleMap googleMap)
-  {
-    mMap = googleMap;
-
-    // Zoom in the Google Map
-    mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
-
-    // set map type
-    mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
-
-    // Enable MyLocation Layer of Google Map
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
-        && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-    {
-      requestPositionPermission();
-      return;
     }
-    mMap.setMyLocationEnabled(true);
 
-    // Show the current location in Google Map
-    mMap.moveCamera(CameraUpdateFactory.newLatLng(getLatestLatLng()));
+    @Override
+    public void onMapReady(GoogleMap googleMap) {
+        mMap = googleMap;
 
-    // Zoom in the Google Map
-    mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
-  }
+        // Zoom in the Google Map
+        mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
 
-  private void requestPositionPermission()
-  {
-    Log.i(TAG, "LOCATION permission has NOT been granted. Requesting permission.");
+        // set map type
+        mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
 
-    if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)
-        || ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_COARSE_LOCATION))
-    {
-      Log.i(TAG, "Displaying location permission rationale to provide additional context.");
-      Snackbar.make(findViewById(R.id.map), R.string.permission_location_rationale,
-          Snackbar.LENGTH_INDEFINITE)
-          .setAction(R.string.ok, new View.OnClickListener()
-          {
-            @Override
-            public void onClick(View view)
-            {
-              ActivityCompat.requestPermissions(MapsActivity.this,
-                  new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-                  REQUEST_LOCATION_PERMISION);
+        // Enable MyLocation Layer of Google Map
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPositionPermission();
+            return;
+        }
+        mMap.setMyLocationEnabled(true);
+
+        // Show the current location in Google Map
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(getLatestLatLng()));
+
+        // Zoom in the Google Map
+        mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
+    }
+
+    private void requestPositionPermission() {
+        Log.i(TAG, "LOCATION permission has NOT been granted. Requesting permission.");
+
+        if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                || ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            Log.i(TAG, "Displaying location permission rationale to provide additional context.");
+            Snackbar.make(findViewById(R.id.map), R.string.permission_location_rationale,
+                    Snackbar.LENGTH_INDEFINITE)
+                    .setAction(R.string.ok, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View view) {
+                            ActivityCompat.requestPermissions(MapsActivity.this,
+                                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                                    REQUEST_LOCATION_PERMISSION);
+                        }
+                    })
+                    .show();
+        } else {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
+                    REQUEST_LOCATION_PERMISSION);
+        }
+    }
+
+    /**
+     * Callback received when a permissions request has been completed.
+     */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+
+        if (requestCode == REQUEST_LOCATION_PERMISSION) {
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED || grantResults[1] == PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG, "LOCATION permission has now been granted.");
+                Snackbar.make(findViewById(R.id.map), R.string.permission_available_location,
+                        Snackbar.LENGTH_SHORT).show();
+            } else {
+                Log.i(TAG, "LOCATION permission was NOT granted.");
+                Snackbar.make(findViewById(R.id.map), R.string.permissions_not_location,
+                        Snackbar.LENGTH_SHORT).show();
             }
-          })
-          .show();
-    } else
-    {
-      ActivityCompat.requestPermissions(this,
-          new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-          REQUEST_LOCATION_PERMISION);
-    }
-  }
-
-  /**
-   * Callback received when a permissions request has been completed.
-   */
-  @Override
-  public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults)
-  {
-
-    if (requestCode == REQUEST_LOCATION_PERMISION)
-    {
-      if (grantResults[0] == PackageManager.PERMISSION_GRANTED || grantResults[1] == PackageManager.PERMISSION_GRANTED)
-      {
-        Log.i(TAG, "LOCATION permission has now been granted.");
-        Snackbar.make(findViewById(R.id.map), R.string.permission_available_location,
-            Snackbar.LENGTH_SHORT).show();
-      } else
-      {
-        Log.i(TAG, "LOCATION permission was NOT granted.");
-        Snackbar.make(findViewById(R.id.map), R.string.permissions_not_location,
-            Snackbar.LENGTH_SHORT).show();
-      }
-    }
-    if (requestCode == REQUEST_FILE_PERMISION)
-    {
-      if (grantResults[0] == PackageManager.PERMISSION_GRANTED || grantResults[1] == PackageManager.PERMISSION_GRANTED)
-      {
-        Log.i(TAG, "FILE permission has now been granted.");
-        Snackbar.make(findViewById(R.id.map), R.string.permission_available_file,
-            Snackbar.LENGTH_SHORT).show();
-      } else
-      {
-        Log.i(TAG, "FILE permission was NOT granted.");
-        Snackbar.make(findViewById(R.id.map), R.string.permissions_not_file,
-            Snackbar.LENGTH_SHORT).show();
-      }
-    } else
-    {
-      super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-    }
-  }
-
-  //get old, but latest location - only use for camera position
-  private LatLng getLatestLatLng()
-  {
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
-        && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-    {
-      return new LatLng(0, 0);
-    } else
-    {
-      // Get Current Location
-      Location myLocation = getLatestLocation();
-
-      double latitude = 0;
-      double longitude = 0;
-
-      try
-      {
-        // Get latitude of the current location
-        latitude = myLocation.getLatitude();
-
-        // Get longitude of the current location
-        longitude = myLocation.getLongitude();
-      } catch (Exception e)
-      {
-      }
-
-      // Create a LatLng object for the current location
-      return new LatLng(latitude, longitude);
-    }
-  }
-
-  //get old, but latest location - only use for camera position
-  private Location getLatestLocation()
-  {
-    // Enable MyLocation Layer of Google Map
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-    {
-      return null;
-    }
-    // Get LocationManager object from System Service LOCATION_SERVICE
-    LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-
-    // Create a criteria object to retrieve provider
-    Criteria criteria = new Criteria();
-    criteria.setAccuracy(Criteria.ACCURACY_FINE);
-
-    // Get the name of the best provider
-    String provider = locationManager.getBestProvider(criteria, true);
-
-    // Get Current Location
-    return locationManager.getLastKnownLocation(provider);
-  }
-
-  private Location getCurrentLocation()
-  {
-    // Enable MyLocation Layer of Google Map
-    if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-    {
-      return null;
-    }
-    //    // Get LocationManager object from System Service LOCATION_SERVICE
-    //    LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-    //
-    //    // Create a criteria object to retrieve provider
-    //    Criteria criteria = new Criteria();
-    //    criteria.setAccuracy(Criteria.ACCURACY_FINE);
-    //
-    //    // Get the name of the best provider
-    //    String provider = locationManager.getBestProvider(criteria, true);
-    //
-    //    // Get Current Location
-    //    return locationManager.getLastKnownLocation(provider);
-    return currentLocation;
-  }
-
-  void mqtt_connect()
-  {
-    MyApp myApp = (MyApp) getApplication();
-    MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
-    Log.d(TAG, "mqtt connect");
-    if (myApp.getMyMQTTclient() == null) {
-      myApp.createMqttClient(mqttServer);
-      myMQTTclient = myApp.getMyMQTTclient();
-    }
-    if (myMQTTclient.isConnected()) {
-      Log.d(TAG, "mqtt already connected, subscribing");
-      mqtt_subscribe();
-      return;
-    }
-
-    try
-    {
-      MqttConnectOptions connOpt;
-      connOpt = new MqttConnectOptions();
-      connOpt.setCleanSession(true);
-      connOpt.setKeepAliveInterval(30);
-      if (!mqttPassword.isEmpty())
-      {
-        connOpt.setUserName(mqttUser);
-        connOpt.setPassword(mqttPassword.toCharArray());
-      }
-
-      IMqttToken token = myMQTTclient.connect(connOpt);
-      token.setActionCallback(new IMqttActionListener()
-      {
-        @Override
-        public void onSuccess(IMqttToken asyncActionToken)
-        {
-          // We are connected
-          Log.d(TAG, "mqtt connect onSuccess");
-          mqtt_retry_count = 0;
-          mqtt_subscribe();
         }
-
-        @Override
-        public void onFailure(IMqttToken asyncActionToken, Throwable exception)
-        {
-          // Something went wrong e.g. connection timeout or firewall problems
-          Log.d(TAG, "mqtt connect onFailure");
-
-          mqtt_retry_count++;
-
-          if (mqtt_retry_count > 1 && mqtt_retry_count < 5)
-          {
-            runOnUiThread(new Runnable()
-            {
-              public void run()
-              {
-                Toast.makeText(getApplicationContext(), "Can not connect to MQTT. Check your internet connection, AppEUI and Access Key.", Toast.LENGTH_LONG).show();
-              }
-            });
-          }
-
-          exception.printStackTrace();
-
-          final Handler handler = new Handler();
-          handler.postDelayed(new Runnable()
-          {
-            @Override
-            public void run()
-            {
-              mqtt_connect();
+        if (requestCode == REQUEST_FILE_PERMISSION) {
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED || grantResults[1] == PackageManager.PERMISSION_GRANTED) {
+                Log.i(TAG, "FILE permission has now been granted.");
+                Snackbar.make(findViewById(R.id.map), R.string.permission_available_file,
+                        Snackbar.LENGTH_SHORT).show();
+            } else {
+                Log.i(TAG, "FILE permission was NOT granted.");
+                Snackbar.make(findViewById(R.id.map), R.string.permissions_not_file,
+                        Snackbar.LENGTH_SHORT).show();
             }
-          }, 1000);
+        } else {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         }
-
-      });
-    } catch (MqttException e)
-    {
-      e.printStackTrace();
     }
 
-  }
+    //get old, but latest location - only use for camera position
+    private LatLng getLatestLatLng() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(getApplicationContext(), "No permission to get location information.", Toast.LENGTH_LONG).show();
+            return new LatLng(0, 0);
+        } else {
+            // Get Current Location
+            Location myLocation = getLatestLocation();
 
-  void mqtt_subscribe()
-  {
-    Log.d(TAG, "mqtt subscribe");
-    try
-    {
-      MyApp myApp = (MyApp) getApplication();
-      MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+            double latitude = 0;
+            double longitude = 0;
 
-      myMQTTclient.setCallback(this);
+            try {
+                // Get latitude of the current location
+                latitude = myLocation.getLatitude();
 
-      IMqttToken subToken = myMQTTclient.subscribe(mqttTopic, 1);
-      subToken.setActionCallback(new IMqttActionListener()
-      {
-        @Override
-        public void onSuccess(IMqttToken asyncActionToken)
-        {
-          // The message was published
-          Log.d(TAG, "mqtt subscribe onSuccess");
-        }
-
-        @Override
-        public void onFailure(IMqttToken asyncActionToken,
-                              Throwable exception)
-        {
-          // The subscription could not be performed, maybe the user was not
-          // authorized to subscribe on the specified topic e.g. using wildcards
-
-          Log.d(TAG, "mqtt subscribe onFailure");
-          final Handler handler = new Handler();
-          handler.postDelayed(new Runnable()
-          {
-            @Override
-            public void run()
-            {
-              mqtt_subscribe();
+                // Get longitude of the current location
+                longitude = myLocation.getLongitude();
+            } catch (Exception e) {
             }
-          }, 1000);
+
+            // Create a LatLng object for the current location
+            return new LatLng(latitude, longitude);
         }
-      });
-    } catch (MqttException e)
-    {
-      e.printStackTrace();
     }
-  }
 
-
-  void mqtt_unsubscribe()
-  {
-    Log.d(TAG, "mqtt unsubscribe");
-    //unsubscribe
-    try
-    {
-      MyApp myApp = (MyApp) getApplication();
-      MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
-
-      IMqttToken unsubToken = myMQTTclient.unsubscribe(mqttTopic);
-      unsubToken.setActionCallback(new IMqttActionListener()
-      {
-        @Override
-        public void onSuccess(IMqttToken asyncActionToken)
-        {
-          // The subscription could successfully be removed from the client
-          Log.d(TAG, "mqtt unsub onSuccess");
-          mqtt_disconnect();
+    //get old, but latest location - only use for camera position
+    private Location getLatestLocation() {
+        // Enable MyLocation Layer of Google Map
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(getApplicationContext(), "No permission to get location information.", Toast.LENGTH_LONG).show();
+            return null;
         }
+        // Get LocationManager object from System Service LOCATION_SERVICE
+        LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
 
-        @Override
-        public void onFailure(IMqttToken asyncActionToken,
-                              Throwable exception)
-        {
-          // some error occurred, this is very unlikely as even if the client
-          // did not had a subscription to the topic the unsubscribe action
-          // will be successfully
-          Log.d(TAG, "mqtt unsub onFailure");
-          mqtt_disconnect();
-        }
-      });
-    } catch (MqttException e)
-    {
-      e.printStackTrace();
+        // Create a criteria object to retrieve provider
+        Criteria criteria = new Criteria();
+        criteria.setAccuracy(Criteria.ACCURACY_FINE);
+
+        // Get the name of the best provider
+        String provider = locationManager.getBestProvider(criteria, true);
+
+        // Get Current Location
+        return locationManager.getLastKnownLocation(provider);
     }
-  }
 
-  void mqtt_disconnect()
-  {
-    Log.d(TAG, "mqtt disconnect");
-    //disconnect
-    try
-    {
-      MyApp myApp = (MyApp) getApplication();
-      MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
-
-      IMqttToken disconToken = myMQTTclient.disconnect();
-      disconToken.setActionCallback(new IMqttActionListener()
-      {
-        @Override
-        public void onSuccess(IMqttToken asyncActionToken)
-        {
-          // we are now successfully disconnected
-          Log.d(TAG, "mqtt disconnect onSuccess");
+    private Location getCurrentLocation() {
+        // Enable MyLocation Layer of Google Map
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(getApplicationContext(), "No permission to get location information.", Toast.LENGTH_LONG).show();
+            return null;
         }
-
-        @Override
-        public void onFailure(IMqttToken asyncActionToken,
-                              Throwable exception)
-        {
-          // something went wrong, but probably we are disconnected anyway
-          Log.d(TAG, "mqtt unsub onFailure");
-        }
-      });
-    } catch (MqttException e)
-    {
-      e.printStackTrace();
+        //    // Get LocationManager object from System Service LOCATION_SERVICE
+        //    LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        //
+        //    // Create a criteria object to retrieve provider
+        //    Criteria criteria = new Criteria();
+        //    criteria.setAccuracy(Criteria.ACCURACY_FINE);
+        //
+        //    // Get the name of the best provider
+        //    String provider = locationManager.getBestProvider(criteria, true);
+        //
+        //    // Get Current Location
+        //    return locationManager.getLastKnownLocation(provider);
+        return currentLocation;
     }
-  }
 
-  @Override
-  public void connectionLost(Throwable cause)
-  {
-    Log.d(TAG, "mqtt connection lost");
-    final Handler handler = new Handler();
-    handler.postDelayed(new Runnable()
-    {
-      @Override
-      public void run()
-      {
+    void mqtt_connect() {
         MyApp myApp = (MyApp) getApplication();
-        if (!myApp.isClosingDown()) {
-          mqtt_connect();
+        MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+        Log.d(TAG, "mqtt connect to " + mqttServer);
+        if (myApp.getMyMQTTclient() == null) {
+            myApp.createMqttClient(mqttServer);
+            myMQTTclient = myApp.getMyMQTTclient();
         }
-      }
-    }, 1000);
-  }
+        if (myMQTTclient.isConnected()) {
+            Log.d(TAG, "mqtt already connected, subscribing");
+            mqtt_subscribe();
+            return;
+        }
 
-  @Override
-  public void messageArrived(String topic, MqttMessage message)
-  {
-    Log.d(TAG, "mqtt message arrived");
-    System.out.println("Message arrived: " + message.toString());
-    process_packet(message.toString(), topic);
-  }
+        try {
+            MqttConnectOptions connOpt;
+            connOpt = new MqttConnectOptions();
+            connOpt.setCleanSession(true);
+            connOpt.setKeepAliveInterval(30);
+            if (!mqttPassword.isEmpty() && !backend.equals("croft")) {
+                Log.d(TAG, "mqtt adding UN/PW " + mqttUser + " " + mqttPassword);
+                connOpt.setUserName(mqttUser);
+                connOpt.setPassword(mqttPassword.toCharArray());
+            }
 
-  @Override
-  public void deliveryComplete(IMqttDeliveryToken token)
-  {
-    Log.d(TAG, "mqtt delivery complete");
-  }
+            IMqttToken token = myMQTTclient.connect(connOpt);
+            token.setActionCallback(new IMqttActionListener() {
+                @Override
+                public void onSuccess(IMqttToken asyncActionToken) {
+                    // We are connected
+                    Log.d(TAG, "mqtt connect onSuccess");
+                    mqtt_retry_count = 0;
+                    mqtt_subscribe();
+                }
+
+                @Override
+                public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                    // Something went wrong e.g. connection timeout or firewall problems
+                    Log.d(TAG, "mqtt connect onFailure");
+
+                    mqtt_retry_count++;
+
+                    if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                Toast.makeText(getApplicationContext(), "Can not connect to MQTT. Check your internet connection, AppEUI and Access Key.", Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    }
+
+                    exception.printStackTrace();
+
+                    final Handler handler = new Handler();
+                    handler.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            mqtt_connect();
+                        }
+                    }, 1000);
+                }
+
+            });
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    void mqtt_subscribe() {
+        Log.d(TAG, "mqtt subscribe");
+        try {
+            MyApp myApp = (MyApp) getApplication();
+            MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+
+            myMQTTclient.setCallback(this);
+
+            IMqttToken subToken = myMQTTclient.subscribe(mqttTopic, 1);
+            Log.d(TAG, "mqtt subscribing to topic: " + mqttTopic);
+            subToken.setActionCallback(new IMqttActionListener() {
+                @Override
+                public void onSuccess(IMqttToken asyncActionToken) {
+                    // The message was published
+                    Log.d(TAG, "mqtt subscribe onSuccess");
+                }
+
+                @Override
+                public void onFailure(IMqttToken asyncActionToken,
+                                      Throwable exception) {
+                    // The subscription could not be performed, maybe the user was not
+                    // authorized to subscribe on the specified topic e.g. using wildcards
+
+                    Log.d(TAG, "mqtt subscribe onFailure");
+                    final Handler handler = new Handler();
+                    handler.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            mqtt_subscribe();
+                        }
+                    }, 1000);
+                }
+            });
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
+    }
 
 
-  void process_packet(String jsonData, String topic)
-  {
+    void mqtt_unsubscribe() {
+        Log.d(TAG, "mqtt unsubscribe");
+        //unsubscribe
+        try {
+            MyApp myApp = (MyApp) getApplication();
+            MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+
+            IMqttToken unsubToken = myMQTTclient.unsubscribe(mqttTopic);
+            unsubToken.setActionCallback(new IMqttActionListener() {
+                @Override
+                public void onSuccess(IMqttToken asyncActionToken) {
+                    // The subscription could successfully be removed from the client
+                    Log.d(TAG, "mqtt unsub onSuccess");
+                    mqtt_disconnect();
+                }
+
+                @Override
+                public void onFailure(IMqttToken asyncActionToken,
+                                      Throwable exception) {
+                    // some error occurred, this is very unlikely as even if the client
+                    // did not had a subscription to the topic the unsubscribe action
+                    // will be successfully
+                    Log.d(TAG, "mqtt unsub onFailure");
+                    mqtt_disconnect();
+                }
+            });
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
+    }
+
+    void mqtt_disconnect() {
+        Log.d(TAG, "mqtt disconnect");
+        //disconnect
+        try {
+            MyApp myApp = (MyApp) getApplication();
+            MqttAndroidClient myMQTTclient = myApp.getMyMQTTclient();
+
+            IMqttToken disconToken = myMQTTclient.disconnect();
+            disconToken.setActionCallback(new IMqttActionListener() {
+                @Override
+                public void onSuccess(IMqttToken asyncActionToken) {
+                    // we are now successfully disconnected
+                    Log.d(TAG, "mqtt disconnect onSuccess");
+                }
+
+                @Override
+                public void onFailure(IMqttToken asyncActionToken,
+                                      Throwable exception) {
+                    // something went wrong, but probably we are disconnected anyway
+                    Log.d(TAG, "mqtt unsub onFailure");
+                }
+            });
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void connectionLost(Throwable cause) {
+        Log.d(TAG, "mqtt connection lost");
+        final Handler handler = new Handler();
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                MyApp myApp = (MyApp) getApplication();
+                if (!myApp.isClosingDown()) {
+                    mqtt_connect();
+                }
+            }
+        }, 1000);
+    }
+
+    @Override
+    public void messageArrived(String topic, MqttMessage message) {
+        Log.d(TAG, "mqtt message arrived");
+        System.out.println("Message arrived: " + message.toString());
+        process_packet(message.toString(), topic);
+    }
+
+    @Override
+    public void deliveryComplete(IMqttDeliveryToken token) {
+        Log.d(TAG, "mqtt delivery complete");
+    }
+
+
+    void process_packet(String jsonData, String topic) {
     /* New format:
   {
     "payload":"WA==","port":1,"counter":3293,
@@ -720,353 +650,366 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
   }
     */
 
-    class AddMarker implements Runnable
-    {
+        class AddMarker implements Runnable {
 
-      private String topic;
-      private String jsonData;
+            private String topic;
+            private String jsonData;
 
-      public AddMarker(String jsonData, String topic)
-      {
-        this.topic = topic;
-        this.jsonData = jsonData;
-      }
-
-      @Override
-      public void run()
-      {
-        Log.d(TAG, "adding marker");
-
-        String[] apart = topic.split("/");
-
-        //filter incorrect topics
-        if (apart.length != 4)
-        {
-          return;
-        }
-
-        if (!apart[3].equals("up"))
-        {
-          return;
-        }
-
-        String devEUI = apart[2];
-
-        //don't log if we don't know our location
-        Location location = getCurrentLocation();
-        if (location == null) {
-          Log.d(TAG, "Location is null");
-
-          runOnUiThread(new Runnable()
-          {
-            public void run()
-            {
-              Toast.makeText(getApplicationContext(), "Can not get GPS location", Toast.LENGTH_SHORT).show();
+            public AddMarker(String jsonData, String topic) {
+                this.topic = topic;
+                this.jsonData = jsonData;
             }
-          });
 
-          return;
-        }
+            @Override
+            public void run() {
+                Log.d(TAG, "adding marker");
 
-        //correct type of packet
-        System.out.println(topic);
-        System.out.println(jsonData);
+                //don't log if we don't know our location
+                Location location = getCurrentLocation();
+                if (location == null) {
+                    Log.d(TAG, "Location is null");
 
-        try
-        {
-          JSONObject received_data = new JSONObject(jsonData);
-          JSONArray gateways = received_data.getJSONArray("metadata");
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            Toast.makeText(getApplicationContext(), "GPS location not accurate enough. Try going outside.", Toast.LENGTH_LONG).show();
+                        }
+                    });
 
-          for (int i = 0; i < gateways.length(); i++)
-          {
-            JSONObject gateway = gateways.getJSONObject(i);
-            try
-            {
-              addMarker(location, gateway.getDouble("rssi"));
-              if (createFile)
-              {
-                savePacket(location, gateway, topic);
-              }
-              if (logToServer)
-              {
-                uploadPacket(location, gateway, devEUI);
-                uploadGateway(gateway);
-              }
-            } catch (JSONException e)
-            {
-              e.printStackTrace();
+                    return;
+                }
+
+                if (backend.equals("croft")) //Old croft MQTT format
+                {
+                    try {
+                        JSONObject received_data = new JSONObject(jsonData);
+
+                        addMarker(location, received_data.getDouble("rssi"));
+                        if (createFile) {
+                            savePacket(location, received_data, nodeaddr);
+                        }
+                        if (logType.equals("global")) {
+                            uploadPacket(location, received_data, nodeaddr);
+                        } else if (logType.equals("experiment")) {
+                            uploadPacket(location, received_data, nodeaddr);
+                        } else {
+                            //local only
+                        }
+
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+
+                } else { //Staging server MQTT format
+                    String[] apart = topic.split("/");
+
+                    //filter incorrect topics
+                    if (apart.length != 4) {
+                        return;
+                    }
+
+                    if (!apart[3].equals("up")) {
+                        return;
+                    }
+
+                    String devEUI = apart[2];
+
+                    //correct type of packet
+                    System.out.println(topic);
+                    System.out.println(jsonData);
+
+                    try {
+                        JSONObject received_data = new JSONObject(jsonData);
+                        JSONArray gateways = received_data.getJSONArray("metadata");
+
+                        for (int i = 0; i < gateways.length(); i++) {
+                            JSONObject gateway = gateways.getJSONObject(i);
+                            try {
+                                addMarker(location, gateway.getDouble("rssi"));
+                                if (createFile) {
+                                    savePacket(location, gateway, topic);
+                                }
+                                if (logType.equals("global")) {
+                                    uploadPacket(location, gateway, devEUI);
+                                    uploadGateway(gateway);
+                                } else if (logType.equals("experiment")) {
+                                    uploadPacket(location, gateway, devEUI);
+                                    //we do not trust experiments to update our gateway table
+                                } else {
+                                    //local only
+                                }
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+                        }
+
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                }
             }
-          }
+        } //end of AddMarker inner class
 
-          //          gatewayAddr = received_data.getString("gatewayEui");
-          //          nodeAddr = received_data.getString("nodeEui");
-          //          time = received_data.getString("time");
-          //          freq = received_data.getDouble("frequency");
-          //          dataRate = received_data.getString("dataRate");
-          //          rssi = received_data.getDouble("rssi");
-          //          snr = received_data.getDouble("snr");
-        } catch (JSONException e)
-        {
-          e.printStackTrace();
-        }
+        // start the inner class runnable
+        Runnable addMarker = new AddMarker(jsonData, topic);
+        runOnUiThread(addMarker);
 
-      }
-    } //end of AddMarker inner class
-
-    // start the inner class runnable
-    Runnable addMarker = new AddMarker(jsonData, topic);
-    runOnUiThread(addMarker);
-
-  }
-
-  void addMarker(Location location, double rssi)
-  {
-    if (mMap != null)
-    {
-      CircleOptions options = new CircleOptions()
-          .center(new LatLng(location.getLatitude(), location.getLongitude()))
-          .radius(15)
-          .strokeColor(0x00000000);
-
-      if (rssi == 0)
-      {
-        options.fillColor(0x7f000000);
-      } else if (rssi < -120)
-      {
-        options.fillColor(0x7f0000ff);
-      } else if (rssi < -110)
-      {
-        options.fillColor(0x7f00ffff);
-      } else if (rssi < -100)
-      {
-        options.fillColor(0x7f00ff00);
-      } else if (rssi < -90)
-      {
-        options.fillColor(0x7fffff00);
-      } else if (rssi < -80)
-      {
-        options.fillColor(0x7fff7f00);
-      } else
-      {
-        options.fillColor(0x7fff0000);
-      }
-
-      mMap.addCircle(options);
-      //mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
     }
-  }
 
-  void savePacket(Location location, JSONObject gateway, String topic)
-  {
-    //{"frequency":868.1,
-    // "datarate":"SF7BW125",
-    // "codingrate":"4/5",
-    // "gateway_timestamp":472142790,
-    // "gateway_time":"2016-05-01T19:44:53.877604706Z",
-    // "channel":0,
-    // "server_time":"2016-05-01T19:44:53.756166662Z",
-    // "rssi":-66,
-    // "lsnr":10,
-    // "rfchain":0,
-    // "crc":1,
-    // "modulation":"LORA",
-    // "gateway_eui":"B827EBFFFF5FE05C",
-    // "altitude":0,
-    // "longitude":4.63576,
-    // "latitude":52.37447}
-    try
-    {
-      String gatewayAddr = gateway.getString("gateway_eui");
-      String time = gateway.getString("server_time");
-      double freq = gateway.getDouble("frequency");
-      String dataRate = gateway.getString("datarate");
-      double rssi = gateway.getDouble("rssi");
-      double snr = gateway.getDouble("lsnr");
+    void addMarker(Location location, double rssi) {
+        if (mMap != null) {
+            CircleOptions options = new CircleOptions()
+                    .center(new LatLng(location.getLatitude(), location.getLongitude()))
+                    .radius(15)
+                    .strokeColor(0x00000000);
 
-      Log.d(TAG, "adding to file");
-      try
-      {
+            if (rssi == 0) {
+                options.fillColor(0x7f000000);
+            } else if (rssi < -120) {
+                options.fillColor(0x7f0000ff);
+            } else if (rssi < -110) {
+                options.fillColor(0x7f00ffff);
+            } else if (rssi < -100) {
+                options.fillColor(0x7f00ff00);
+            } else if (rssi < -90) {
+                options.fillColor(0x7fffff00);
+            } else if (rssi < -80) {
+                options.fillColor(0x7fff7f00);
+            } else {
+                options.fillColor(0x7fff0000);
+            }
+
+            mMap.addCircle(options);
+            //mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+        }
+    }
+
+    void savePacket(Location location, JSONObject mqttJSONdata, String topic) {
+        String gatewayAddr;
+        String time;
+        double freq;
+        String dataRate;
+        double rssi;
+        double snr;
+
+        try {
+            if (backend.equals("croft")) {
+                // {"gatewayEui":"00FE34FFFFD30DA7",
+                // "nodeEui":"02017201",
+                // "time":"2016-06-06T01:12:09.101797367Z",
+                // "frequency":868.099975,
+                // "dataRate":"SF7BW125",
+                // "rssi":-46,
+                // "snr":9,
+                // "rawData":"QAFyAQIAxAABJeu0TLc=",
+                // "data":"IQ=="}
+
+                gatewayAddr = mqttJSONdata.getString("gatewayEui");
+                time = mqttJSONdata.getString("time");
+                freq = mqttJSONdata.getDouble("frequency");
+                dataRate = mqttJSONdata.getString("dataRate");
+                rssi = mqttJSONdata.getDouble("rssi");
+                snr = mqttJSONdata.getDouble("snr");
+            } else {
+                //{"frequency":868.1,
+                // "datarate":"SF7BW125",
+                // "codingrate":"4/5",
+                // "gateway_timestamp":472142790,
+                // "gateway_time":"2016-05-01T19:44:53.877604706Z",
+                // "channel":0,
+                // "server_time":"2016-05-01T19:44:53.756166662Z",
+                // "rssi":-66,
+                // "lsnr":10,
+                // "rfchain":0,
+                // "crc":1,
+                // "modulation":"LORA",
+                // "gateway_eui":"B827EBFFFF5FE05C",
+                // "altitude":0,
+                // "longitude":4.63576,
+                // "latitude":52.37447}
+                gatewayAddr = mqttJSONdata.getString("gateway_eui");
+                time = mqttJSONdata.getString("server_time");
+                freq = mqttJSONdata.getDouble("frequency");
+                dataRate = mqttJSONdata.getString("datarate");
+                rssi = mqttJSONdata.getDouble("rssi");
+                snr = mqttJSONdata.getDouble("lsnr");
+            }
+
+            Log.d(TAG, "adding to file");
+            try {
 
     /*
       02031701
 
       time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
      */
-        String data =
-            time + "," + topic + "," + gatewayAddr + "," +
-                dataRate + "," + snr + "," + rssi + "," +
-                freq + "," + location.getLatitude() + "," + location.getLongitude() + "\n";
+                String data =
+                        time + "," + topic + "," + gatewayAddr + "," +
+                                dataRate + "," + snr + "," + rssi + "," +
+                                freq + "," + location.getLatitude() + "," + location.getLongitude() + "\n";
 
-        FileWriter writer = new FileWriter(loggingFilename, true);
-        // Writes the content to the file
-        writer.write(data);
-        writer.flush();
-        writer.close();
-        System.out.println("File written");
-      } catch (IOException e)
-      {
-        Log.e("Exception", "File write failed: " + e.toString());
-      }
-    } catch (JSONException e)
-    {
-      e.printStackTrace();
-    }
-  }
-
-  void uploadPacket(Location location, JSONObject gateway, String devEUI)
-  {
-    try
-    {
-      String gatewayAddr = gateway.getString("gateway_eui");
-      String time = gateway.getString("server_time");
-      double freq = gateway.getDouble("frequency");
-      String dataRate = gateway.getString("datarate");
-      double rssi = gateway.getDouble("rssi");
-      double snr = gateway.getDouble("lsnr");
-
-      Log.d(TAG, "logging packet to server");
-
-      //object for storing Json
-      JSONObject data = new JSONObject();
-      data.put("time", time);
-      data.put("nodeaddr", devEUI);
-      data.put("gwaddr", gatewayAddr);
-      data.put("datarate", dataRate);
-      data.put("snr", snr);
-      data.put("rssi", rssi);
-      data.put("freq", freq);
-      data.put("lat", location.getLatitude());
-      data.put("lon", location.getLongitude());
-      if (location.hasAltitude())
-      {
-        data.put("alt", location.getAltitude());
-      }
-      if (location.hasAccuracy())
-      {
-        data.put("accuracy", location.getAccuracy());
-      }
-      data.put("provider", location.getProvider());
-
-      String dataString = data.toString();
-      System.out.println(dataString);
-      String url = "http://ttnmapper.org/api/upload.php";
-
-      //post packet
-      postToServer(url, dataString, new Callback()
-      {
-        @Override
-        public void onFailure(Call call, IOException e)
-        {
-          runOnUiThread(new Runnable()
-          {
-            public void run()
-            {
-              Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
+                FileWriter writer = new FileWriter(loggingFilename, true);
+                // Writes the content to the file
+                writer.write(data);
+                writer.flush();
+                writer.close();
+                System.out.println("File written");
+            } catch (IOException e) {
+                Log.e("Exception", "File write failed: " + e.toString());
             }
-          });
-          e.printStackTrace();
+        } catch (JSONException e) {
+            e.printStackTrace();
         }
+    }
 
-        @Override
-        public void onResponse(Call call, Response response) throws IOException
-        {
-          if (response.isSuccessful())
-          {
-            final String returnedString = response.body().string();
-            System.out.println("HTTP response: " + returnedString);
-            if (!returnedString.contains("New records created successfully"))
+    void uploadPacket(Location location, JSONObject mqttJSONdata, String devEUI) {
+        String gatewayAddr;
+        String time;
+        double freq;
+        String dataRate;
+        double rssi;
+        double snr;
+
+        try {
+            if (backend.equals("croft")) {
+                gatewayAddr = mqttJSONdata.getString("gatewayEui");
+                time = mqttJSONdata.getString("time");
+                freq = mqttJSONdata.getDouble("frequency");
+                dataRate = mqttJSONdata.getString("dataRate");
+                rssi = mqttJSONdata.getDouble("rssi");
+                snr = mqttJSONdata.getDouble("snr");
+            } else {
+                gatewayAddr = mqttJSONdata.getString("gateway_eui");
+                time = mqttJSONdata.getString("server_time");
+                freq = mqttJSONdata.getDouble("frequency");
+                dataRate = mqttJSONdata.getString("datarate");
+                rssi = mqttJSONdata.getDouble("rssi");
+                snr = mqttJSONdata.getDouble("lsnr");
+            }
+
+            Log.d(TAG, "logging packet to server");
+
+            //object for storing Json
+            JSONObject data = new JSONObject();
+            data.put("time", time);
+            data.put("nodeaddr", devEUI);
+            data.put("gwaddr", gatewayAddr);
+            data.put("datarate", dataRate);
+            data.put("snr", snr);
+            data.put("rssi", rssi);
+            data.put("freq", freq);
+            data.put("lat", location.getLatitude());
+            data.put("lon", location.getLongitude());
+            if (location.hasAltitude()) {
+                data.put("alt", location.getAltitude());
+            }
+            if (location.hasAccuracy()) {
+                data.put("accuracy", location.getAccuracy());
+            }
+            data.put("provider", location.getProvider());
+
+            //the only difference between a normal upload and an experiment is the experiment name parameter
+            if (logType.equals("experiment"))
             {
-              // Request not successful
-              runOnUiThread(new Runnable()
-              {
-                public void run()
-                {
-                  Toast.makeText(getApplicationContext(), "server error: " + returnedString, Toast.LENGTH_SHORT).show();
+                data.put("experiment", experimentName);
+            }
+
+            String dataString = data.toString();
+            System.out.println(dataString);
+            String url = "http://ttnmapper.org/api/upload.php";
+
+            //post packet
+            postToServer(url, dataString, new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    e.printStackTrace();
                 }
-              });
-            }
-            // Do what you want to do with the response.
-          } else
-          {
-            // Request not successful
-            runOnUiThread(new Runnable()
-            {
-              public void run()
-              {
-                Toast.makeText(getApplicationContext(), "server error", Toast.LENGTH_SHORT).show();
-              }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    if (response.isSuccessful()) {
+                        final String returnedString = response.body().string();
+                        System.out.println("HTTP response: " + returnedString);
+                        if (!returnedString.contains("New records created successfully")) {
+                            // Request not successful
+                            runOnUiThread(new Runnable() {
+                                public void run() {
+                                    Toast.makeText(getApplicationContext(), "server error: " + returnedString, Toast.LENGTH_SHORT).show();
+                                }
+                            });
+                        }
+                        // Do what you want to do with the response.
+                    } else {
+                        // Request not successful
+                        runOnUiThread(new Runnable() {
+                            public void run() {
+                                Toast.makeText(getApplicationContext(), "server error", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }
             });
-          }
-        }
-      });
 
-    } catch (JSONException e)
-    {
-      e.printStackTrace();
-    } catch (IOException e)
-    {
-      e.printStackTrace();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
-  }
 
 
-  void uploadGateway(JSONObject gateway)
-  {
-    try
-    {
-      String gatewayAddr = gateway.getString("gateway_eui");
-      String time = gateway.getString("server_time");
-      double lat = gateway.getDouble("latitude");
-      double lon = gateway.getDouble("longitude");
-      double alt = gateway.getDouble("altitude");
+    void uploadGateway(JSONObject gateway) {
+        try {
+            String gatewayAddr = gateway.getString("gateway_eui");
+            String time = gateway.getString("server_time");
+            double lat = gateway.getDouble("latitude");
+            double lon = gateway.getDouble("longitude");
+            double alt = gateway.getDouble("altitude");
 
-      Log.d(TAG, "logging gateway to server");
+            Log.d(TAG, "logging gateway to server");
 
-      //object for storing Json
-      JSONObject data = new JSONObject();
-      data.put("time", time);
-      data.put("gwaddr", gatewayAddr);
-      data.put("lat", lat);
-      data.put("lon", lon);
-      data.put("alt", alt);
+            //object for storing Json
+            JSONObject data = new JSONObject();
+            data.put("time", time);
+            data.put("gwaddr", gatewayAddr);
+            data.put("lat", lat);
+            data.put("lon", lon);
+            data.put("alt", alt);
 
-      String dataString = data.toString();
-      System.out.println(dataString);
-      String url = "http://ttnmapper.org/api/update_gateway.php";
+            String dataString = data.toString();
+            System.out.println(dataString);
+            String url = "http://ttnmapper.org/api/update_gateway.php";
 
-      //post packet
-      postToServer(url, dataString, new Callback()
-      {
-        @Override
-        public void onFailure(Call call, IOException e)
-        {
-          runOnUiThread(new Runnable()
-          {
-            public void run()
-            {
-              Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
-            }
-          });
-          e.printStackTrace();
+            //post packet
+            postToServer(url, dataString, new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            Toast.makeText(getApplicationContext(), "error uploading", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                    e.printStackTrace();
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    if (response.isSuccessful()) {
+                        final String returnedString = response.body().string();
+                        System.out.println("HTTP response: " + returnedString);
+                    }
+                }
+            });
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-
-        @Override
-        public void onResponse(Call call, Response response) throws IOException
-        {
-          if (response.isSuccessful())
-          {
-            final String returnedString = response.body().string();
-            System.out.println("HTTP response: " + returnedString);
-          }
-        }
-      });
-
-    } catch (JSONException e)
-    {
-      e.printStackTrace();
-    } catch (IOException e)
-    {
-      e.printStackTrace();
     }
-  }
+
 }
