@@ -80,7 +80,7 @@ public class ExpertQuestions extends AppCompatActivity {
     public void startLogging() {
         //remove back button history
         //kill this activity too
-        Intent intent = new Intent(this, MapsActivity.class);
+        Intent intent = new Intent(this, CheckPermissions.class);
         startActivity(intent);
     }
 }
