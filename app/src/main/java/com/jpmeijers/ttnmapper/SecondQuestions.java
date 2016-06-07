@@ -132,6 +132,7 @@ public class SecondQuestions extends AppCompatActivity {
 
         Intent intent = new Intent(this, ExpertQuestions.class);
         startActivity(intent);
+        finish();
 
     }
 }

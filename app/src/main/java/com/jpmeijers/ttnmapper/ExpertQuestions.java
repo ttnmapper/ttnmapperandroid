@@ -82,5 +82,6 @@ public class ExpertQuestions extends AppCompatActivity {
         //kill this activity too
         Intent intent = new Intent(this, CheckPermissions.class);
         startActivity(intent);
+        finish();
     }
 }

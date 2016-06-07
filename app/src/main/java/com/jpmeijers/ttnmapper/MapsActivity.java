@@ -145,9 +145,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                         }
 
                         //GPS position updates unsubscribe
-                        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
                             try {
                                 mLocationManager.removeUpdates(mLocationListener);
+                                Log.d(TAG, "GPS updates removed");
                             } catch (Exception e) {
                                 Log.d(TAG, "Can not remove gps updates");
                             }
@@ -276,23 +277,23 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         try {
             MyApp myApp = (MyApp) getApplication();
             if (myApp.isClosingDown()) {
-                myApp.getMyMQTTclient().disconnect();
+                if (myApp.getMyMQTTclient() != null) {
+                    myApp.getMyMQTTclient().disconnect();
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-//
-//    //GPS position updates unsubscribe
-//    if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
-//    {
-//      try
-//      {
-//        mLocationManager.removeUpdates(mLocationListener);
-//      } catch (Exception e)
-//      {
-//        Log.d(TAG, "Can not remove gps updates");
-//      }
-//    }
+
+        //GPS position updates unsubscribe
+        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                mLocationManager.removeUpdates(mLocationListener);
+                Log.d(TAG, "GPS updates removed");
+            } catch (Exception e) {
+                Log.d(TAG, "Can not remove gps updates");
+            }
+        }
     }
 
     @Override
@@ -453,10 +454,14 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             myApp.createMqttClient(mqttServer);
             myMQTTclient = myApp.getMyMQTTclient();
         }
-        if (myMQTTclient.isConnected()) {
-            Log.d(TAG, "mqtt already connected, subscribing");
-            mqtt_subscribe();
-            return;
+        try {
+            if (myMQTTclient.isConnected()) {
+                Log.d(TAG, "mqtt already connected, subscribing");
+                mqtt_subscribe();
+                return;
+            }
+        } catch (Exception e) {
+            //catch an error with the mqtt handler when we rotate the screen and an instance already exist which throws an illegalArgumentException whe
         }
 
         try {
@@ -963,6 +968,12 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
 
     void uploadGateway(JSONObject gateway) {
+        /*
+        {"payload":"IQ==","port":1,"counter":2,"dev_eui":"0000000002017202","metadata":
+        [
+            {"frequency":868.1,"datarate":"SF7BW125","codingrate":"4/5","gateway_timestamp":149785848,"channel":0,"server_time":"2016-06-07T16:19:44.21718223Z","rssi":-46,"lsnr":9,"rfchain":0,"crc":1,"modulation":"LORA","gateway_eui":"00FE34FFFFD30DA7","altitude":0,"longitude":0,"latitude":0}
+        ]}
+         */
         try {
             String gatewayAddr = gateway.getString("gateway_eui");
             String time = gateway.getString("server_time");

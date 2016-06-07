@@ -55,12 +55,10 @@
         </activity>
         <activity
             android:name=".SecondQuestions"
-            android:label="TTNmapper - logging options"
-            android:noHistory="true" />
+            android:label="TTNmapper - logging options" />
         <activity
             android:name=".ExpertQuestions"
-            android:label="TTNmapper - expert options"
-            android:noHistory="true" />
+            android:label="TTNmapper - expert options" />
         <activity
             android:name=".CheckPermissions"
             android:label="TTNmapper - permissions" />
