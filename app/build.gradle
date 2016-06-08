@@ -7,13 +7,13 @@ android {
         }
     }
     compileSdkVersion 23
-    buildToolsVersion '23.0.2'
+    buildToolsVersion '23.0.3'
     defaultConfig {
         applicationId "com.jpmeijers.ttnmapper"
         minSdkVersion 16
         targetSdkVersion 23
-        versionCode 11
-        versionName "2016.06.07"
+        versionCode 12
+        versionName "2016.06.08"
         multiDexEnabled = true
     }
     buildTypes {

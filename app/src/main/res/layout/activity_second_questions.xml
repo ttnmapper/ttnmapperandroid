@@ -12,7 +12,8 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_above="@+id/buttonStart">
+        android:layout_above="@+id/buttonStart"
+        android:layout_alignParentTop="true">
 
 
         <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -51,7 +52,7 @@
                 android:textAppearance="?android:attr/textAppearanceLarge" />
 
             <TextView
-                android:id="@+id/txt_post_message"
+                android:id="@+id/textViewCopyDashboard"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:autoLink="web"

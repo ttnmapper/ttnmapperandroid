@@ -46,9 +46,15 @@ public class SecondQuestions extends AppCompatActivity {
 
             textView = (TextView) findViewById(R.id.textViewMQTTpassword);
             textView.setVisibility(View.INVISIBLE);
+            textView.setHeight(0);
 
             editText1 = (EditText) findViewById(R.id.editTextMQTTpassword);
             editText1.setVisibility(View.INVISIBLE);
+            textView.setHeight(0);
+
+            textView = (TextView) findViewById(R.id.textViewCopyDashboard);
+            textView.setVisibility(View.INVISIBLE);
+            textView.setHeight(0);
         } else {
             EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
             String mqttusername = myPrefs.getString("mqttusername", "");

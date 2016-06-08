@@ -9,7 +9,7 @@
         The LoRa node therefore needs to be as close as possible to your smartphone.
 
         \n\nEnter your TTN MQTT details below, and then tap on start.</string>
-    <string name="title_activity_maps">Map</string>
+    <string name="title_activity_maps">TTNmapper - logging</string>
     <string name="permission_location_rationale">This app needs to know your location to geotag TTN packets.</string>
     <string name="ok">OK</string>
     <string name="permissions_not_location">Permissions not granted.</string>

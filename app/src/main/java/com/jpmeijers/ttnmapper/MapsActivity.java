@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.location.Criteria;
 import android.location.Location;
@@ -40,8 +41,11 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.FileWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -693,9 +697,9 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                             savePacket(location, received_data, nodeaddr);
                         }
                         if (logType.equals("global")) {
-                            uploadPacket(location, received_data, nodeaddr);
+                            uploadPacket(location, received_data, nodeaddr, null, topic);
                         } else if (logType.equals("experiment")) {
-                            uploadPacket(location, received_data, nodeaddr);
+                            uploadPacket(location, received_data, nodeaddr, null, topic);
                         } else {
                             //local only
                         }
@@ -717,6 +721,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     }
 
                     String devEUI = apart[2];
+                    String appEUI = apart[0];
 
                     //correct type of packet
                     System.out.println(topic);
@@ -734,10 +739,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                                     savePacket(location, gateway, topic);
                                 }
                                 if (logType.equals("global")) {
-                                    uploadPacket(location, gateway, devEUI);
+                                    uploadPacket(location, gateway, devEUI, appEUI, topic);
                                     uploadGateway(gateway);
                                 } else if (logType.equals("experiment")) {
-                                    uploadPacket(location, gateway, devEUI);
+                                    uploadPacket(location, gateway, devEUI, appEUI, topic);
                                     //we do not trust experiments to update our gateway table
                                 } else {
                                     //local only
@@ -839,34 +844,51 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 snr = mqttJSONdata.getDouble("lsnr");
             }
 
-            Log.d(TAG, "adding to file");
-            try {
 
+            Log.d(TAG, "adding to file");
     /*
       02031701
 
       time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
      */
-                String data =
-                        time + "," + topic + "," + gatewayAddr + "," +
-                                dataRate + "," + snr + "," + rssi + "," +
-                                freq + "," + location.getLatitude() + "," + location.getLongitude() + "\n";
+            String data =
+                    time + "," + topic + "," + gatewayAddr + "," +
+                            dataRate + "," + snr + "," + rssi + "," +
+                            freq + "," + location.getLatitude() + "," + location.getLongitude();
 
-                FileWriter writer = new FileWriter(loggingFilename, true);
-                // Writes the content to the file
-                writer.write(data);
-                writer.flush();
-                writer.close();
-                System.out.println("File written");
+            // Find the root of the external storage.
+            // See http://developer.android.com/guide/topics/data/data-  storage.html#filesExternal
+
+            File root = android.os.Environment.getExternalStorageDirectory();
+            Log.d(TAG, "\nExternal file system root: " + root);
+
+            // See http://stackoverflow.com/questions/3551821/android-write-to-sd-card-folder
+
+            File dir = new File(root.getAbsolutePath() + "/ttnmapper_logs");
+            dir.mkdirs();
+            File file = new File(dir, loggingFilename);
+
+            try {
+                FileOutputStream f = new FileOutputStream(file, true);
+                PrintWriter pw = new PrintWriter(f);
+                pw.println(data);
+                pw.flush();
+                pw.close();
+                f.close();
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+                Log.i(TAG, "******* File not found. Did you" +
+                        " add a WRITE_EXTERNAL_STORAGE permission to the   manifest?");
             } catch (IOException e) {
-                Log.e("Exception", "File write failed: " + e.toString());
+                e.printStackTrace();
             }
+            Log.d(TAG, "\n\nFile written to " + file);
         } catch (JSONException e) {
             e.printStackTrace();
         }
     }
 
-    void uploadPacket(Location location, JSONObject mqttJSONdata, String devEUI) {
+    void uploadPacket(Location location, JSONObject mqttJSONdata, String devEUI, String appEUI, String topic) {
         String gatewayAddr;
         String time;
         double freq;
@@ -875,6 +897,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         double snr;
 
         try {
+
+            //object for storing Json
+            JSONObject data = new JSONObject();
+
             if (backend.equals("croft")) {
                 gatewayAddr = mqttJSONdata.getString("gatewayEui");
                 time = mqttJSONdata.getString("time");
@@ -889,12 +915,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 dataRate = mqttJSONdata.getString("datarate");
                 rssi = mqttJSONdata.getDouble("rssi");
                 snr = mqttJSONdata.getDouble("lsnr");
+                data.put("appeui", appEUI);
             }
 
             Log.d(TAG, "logging packet to server");
-
-            //object for storing Json
-            JSONObject data = new JSONObject();
             data.put("time", time);
             data.put("nodeaddr", devEUI);
             data.put("gwaddr", gatewayAddr);
@@ -911,10 +935,20 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 data.put("accuracy", location.getAccuracy());
             }
             data.put("provider", location.getProvider());
+            data.put("mqtt_topic", topic);
+
+            //add version name of this app
+            try {
+                PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+                String version = pInfo.versionName;
+                int verCode = pInfo.versionCode;
+                data.put("user_agent", "Android" + android.os.Build.VERSION.RELEASE + " App" + verCode + ":" + version);
+            } catch (PackageManager.NameNotFoundException e) {
+                e.printStackTrace();
+            }
 
             //the only difference between a normal upload and an experiment is the experiment name parameter
-            if (logType.equals("experiment"))
-            {
+            if (logType.equals("experiment")) {
                 data.put("experiment", experimentName);
             }
 

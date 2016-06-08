@@ -13,7 +13,8 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@+id/button3">
+        android:layout_above="@+id/button3"
+        android:layout_alignParentTop="true">
 
 
         <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -41,7 +42,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="+/devices/#" />
-
+<!--
             <TextView
                 android:id="@+id/textView9"
                 android:layout_width="wrap_content"
@@ -54,7 +55,7 @@
                 android:id="@+id/textView12"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Log locations where packets are not received. We can do this if we know at which frequency our node transmits packets. Specify a expected maximum time between packets of slightly more than the real time between two transmits. Also specify how many packets should be reported as missing before we give up. This should be less than a minute. \n(number of losses x time between packets &lt; 60 seconds)"
+                android:text="Log locations where packets are not received. We can do this if we know at which frequency our node transmits packets. Specify an expected maximum time between packets of slightly more than the real time between two transmits. Also specify how many packets should be reported as missing before we give up. This should be less than a minute. \n(number of losses x time between packets &lt; 60 seconds)"
                 android:textStyle="italic" />
 
             <TextView
@@ -99,6 +100,7 @@
                 android:layout_height="wrap_content"
                 android:enabled="false"
                 android:hint="6" />
+                -->
         </LinearLayout>
 
     </ScrollView>
