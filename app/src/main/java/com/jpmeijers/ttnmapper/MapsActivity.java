@@ -277,7 +277,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         Log.d(TAG, "onDestroy");
         super.onDestroy();
 
-        //MQTT unsubscribe
         try {
             MyApp myApp = (MyApp) getApplication();
             if (myApp.isClosingDown()) {
@@ -298,6 +297,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 Log.d(TAG, "Can not remove gps updates");
             }
         }
+
+        MyApp myApp = (MyApp) getApplication();
+        myApp.setMQTTclient(null);
+
     }
 
     @Override
