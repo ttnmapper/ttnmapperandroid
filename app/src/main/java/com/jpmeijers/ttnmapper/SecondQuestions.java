@@ -118,7 +118,7 @@ public class SecondQuestions extends AppCompatActivity {
 
         if (myPrefs.getString("backend", "staging").equals("croft")) {
             EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
-            String nodeAddress = editText1.getText().toString();
+            String nodeAddress = editText1.getText().toString().toUpperCase();
             prefsEditor.putString("nodeaddress", nodeAddress);
         } else {
             EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);

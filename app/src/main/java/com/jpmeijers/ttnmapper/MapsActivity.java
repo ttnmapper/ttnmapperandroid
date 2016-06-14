@@ -143,8 +143,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
                         //MQTT unsubscribe
                         try {
-//                            myApp.getMyMQTTclient().disconnect();
-                            myApp.getMyMQTTclient().disconnectForcibly(1);
+                            myApp.getMyMQTTclient().disconnect();
+//                            myApp.getMyMQTTclient().disconnectForcibly(1);
                         } catch (MqttException e) {
                             e.printStackTrace();
                         }
