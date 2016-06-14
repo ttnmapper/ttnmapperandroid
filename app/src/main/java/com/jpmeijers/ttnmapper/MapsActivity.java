@@ -143,7 +143,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
                         //MQTT unsubscribe
                         try {
-                            myApp.getMyMQTTclient().disconnect();
+//                            myApp.getMyMQTTclient().disconnect();
+                            myApp.getMyMQTTclient().disconnectForcibly(1);
                         } catch (MqttException e) {
                             e.printStackTrace();
                         }
@@ -157,6 +158,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                                 Log.d(TAG, "Can not remove gps updates");
                             }
                         }
+
+                        //force the creation of a new MQTT object after we manually stop the logging.
+                        //This is only needed to be able to connect to a different backend during the same session.
+                        myApp.setMQTTclient(null);
 
                         //end this activity
                         MapsActivity.this.finish();
@@ -297,9 +302,9 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 Log.d(TAG, "Can not remove gps updates");
             }
         }
-
-        MyApp myApp = (MyApp) getApplication();
-        myApp.setMQTTclient(null);
+//This causes multiple MQTT receptions after rotating the screen.
+//        MyApp myApp = (MyApp) getApplication();
+//        myApp.setMQTTclient(null);
 
     }
 
