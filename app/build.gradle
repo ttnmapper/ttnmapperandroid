@@ -12,8 +12,8 @@ android {
         applicationId "com.jpmeijers.ttnmapper"
         minSdkVersion 16
         targetSdkVersion 23
-        versionCode 14
-        versionName "2016.06.14"
+        versionCode 15
+        versionName "2016.07.10"
         multiDexEnabled = true
     }
     buildTypes {

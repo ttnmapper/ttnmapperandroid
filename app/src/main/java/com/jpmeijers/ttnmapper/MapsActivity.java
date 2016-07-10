@@ -45,8 +45,8 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
-import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolylineOptions;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 import org.eclipse.paho.client.mqttv3.IMqttActionListener;
@@ -65,8 +65,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.List;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -99,8 +97,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     Bitmap bmOrange;
     Bitmap bmRed;
 
-    //keep a list of all the markers
-    List<Marker> markers = new ArrayList<Marker>();
 
     private int mqtt_retry_count = 0;
     private GoogleMap mMap;
@@ -266,6 +262,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
         menu.findItem(R.id.menu_action_auto_centre).setChecked(myPrefs.getBoolean("autocentremap", true));
         menu.findItem(R.id.menu_action_auto_zoom).setChecked(myPrefs.getBoolean("autozoommap", true));
+        menu.findItem(R.id.menu_action_lordrive).setChecked(myPrefs.getBoolean("lordrive", true));
         return true;
     }
 
@@ -295,6 +292,17 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 prefsEditor.putBoolean("autozoommap", item.isChecked());
                 prefsEditor.apply();
                 return true;
+            case R.id.menu_action_lordrive:
+                if (item.isChecked()) {
+                    Log.d(TAG, "Disabling loradrive");
+                } else {
+                    Log.d(TAG, "Enabling loradrive");
+                }
+                item.setChecked(!item.isChecked());
+                prefsEditor.putBoolean("lordrive", item.isChecked());
+                prefsEditor.apply();
+                clearMapAddMarkersLines();
+                return true;
             case R.id.menu_action_exit:
                 //dismiss the menu first
                 exitApp();
@@ -315,7 +323,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
-        mapFragment.setRetainInstance(true);
+        //mapFragment.setRetainInstance(true);
 
         Intent intent = getIntent();
 
@@ -398,6 +406,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     public void onResume() {
         Log.d(TAG, "onResume");
         super.onResume();  // Always call the superclass method first
+        clearMapAddMarkersLines();
     }
 
     @Override
@@ -457,6 +466,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         mMap.setOnCameraChangeListener(this);
 
+        clearMapAddMarkersLines();
 
 //        new GoogleMap.OnCameraChangeListener() {
 //            @Override
@@ -892,25 +902,22 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     try {
                         JSONObject received_data = new JSONObject(jsonData);
                         JSONArray gateways = received_data.getJSONArray("metadata");
+                        double maxRssi = addLine(location, gateways);
+                        addMarker(location, maxRssi);
 
                         for (int i = 0; i < gateways.length(); i++) {
                             JSONObject gateway = gateways.getJSONObject(i);
-                            try {
-                                addMarker(location, gateway.getDouble("rssi"));
-                                if (createFile) {
-                                    savePacket(location, gateway, topic);
-                                }
-                                if (logType.equals("global")) {
-                                    uploadPacket(location, gateway, devEUI, appEUI, topic);
-                                    uploadGateway(gateway);
-                                } else if (logType.equals("experiment")) {
-                                    uploadPacket(location, gateway, devEUI, appEUI, topic);
-                                    //we do not trust experiments to update our gateway table
-                                } else {
-                                    //local only
-                                }
-                            } catch (JSONException e) {
-                                e.printStackTrace();
+                            if (createFile) {
+                                savePacket(location, gateway, topic);
+                            }
+                            if (logType.equals("global")) {
+                                uploadPacket(location, gateway, devEUI, appEUI, topic);
+                                uploadGateway(gateway);
+                            } else if (logType.equals("experiment")) {
+                                uploadPacket(location, gateway, devEUI, appEUI, topic);
+                                //we do not trust experiments to update our gateway table
+                            } else {
+                                //local only
                             }
                         }
 
@@ -927,7 +934,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
     }
 
-    void createMarkers() {
+    void createMarkerBitmaps() {
         int d = 30; // diameter
         if (circleBlack == null) {
             bmBlack = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
@@ -987,10 +994,63 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
+    double addLine(Location location, JSONArray metadata) {
+        double rssi = 0;
+        for (int i = 0; i < metadata.length(); i++) {
+            try {
+                JSONObject gateway = metadata.getJSONObject(i);
+                if (rssi == 0 || rssi < gateway.getDouble("rssi")) {
+                    rssi = metadata.getJSONObject(i).getDouble("rssi");
+                }
+
+                double gwLat = gateway.getDouble("latitude");
+                double gwLon = gateway.getDouble("longitude");
+                if (gwLat != 0 && gwLon != 0) {
+                    PolylineOptions options = new PolylineOptions();
+                    options.add(new LatLng(location.getLatitude(), location.getLongitude()));
+                    options.add(new LatLng(gwLat, gwLon));
+                    if (rssi == 0) {
+                        options.color(0x7f000000);
+                    } else if (rssi < -120) {
+                        options.color(0x7f0000ff);
+                    } else if (rssi < -110) {
+                        options.color(0x7f00ffff);
+                    } else if (rssi < -100) {
+                        options.color(0x7f00ff00);
+                    } else if (rssi < -90) {
+                        options.color(0x7fffff00);
+                    } else if (rssi < -80) {
+                        options.color(0x7fff7f00);
+                    } else {
+                        options.color(0x7fff0000);
+                    }
+                    options.width(2);
+                    MyApp myApp = (MyApp) getApplication();
+                    myApp.getLines().add(options);
+
+                    MarkerOptions gwoptions = new MarkerOptions();
+                    gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_marker));
+                    gwoptions.position(new LatLng(gwLat, gwLon));
+                    gwoptions.title(gateway.getString("gateway_eui"));
+                    gwoptions.anchor((float) 0.5, 1);
+
+                    myApp.getGatewayMarkers().add(gwoptions);
+
+                }
+
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return rssi;
+    }
+
 
     void addMarker(Location location, double rssi) {
+
         if (mMap != null) {
-            createMarkers();
+            createMarkerBitmaps();
             MarkerOptions options = new MarkerOptions();
 
             if (rssi == 0) {
@@ -1010,15 +1070,41 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             }
             options.position(new LatLng(location.getLatitude(), location.getLongitude()));
             options.anchor((float) 0.5, (float) 0.5);
-            Marker marker = mMap.addMarker(options);
-            markers.add(marker);
+
+            MyApp myApp = (MyApp) getApplication();
+            myApp.getMarkers().add(options);
+
+            clearMapAddMarkersLines();
+        }
+    }
+
+    public void clearMapAddMarkersLines() {
+        if (mMap != null) {
+            //clear map
+            mMap.clear();
+
+            MyApp myApp = (MyApp) getApplication();
+            for (MarkerOptions options : myApp.getMarkers()) {
+                mMap.addMarker(options);
+            }
 
             SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+            if (myPrefs.getBoolean("lordrive", true)) {
+                for (MarkerOptions options : myApp.getGatewayMarkers()) {
+                    mMap.addMarker(options);
+                }
+                for (PolylineOptions options : myApp.getLines()) {
+                    mMap.addPolyline(options);
+                }
+            }
+
             if (myPrefs.getBoolean("autozoommap", true)) {
                 autoScaleMap();
             }
         }
+
     }
+
 
     int getNavigationBarHeight() {
         Resources resources = getApplicationContext().getResources();
@@ -1038,7 +1124,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         double lonMax = 0;
 
         LatLngBounds.Builder builder = new LatLngBounds.Builder();
-        for (Marker marker : markers) {
+        MyApp myApp = (MyApp) getApplication();
+        for (MarkerOptions marker : myApp.getMarkers()) {
             LatLng markerPosition = marker.getPosition();
             builder.include(markerPosition);
             numberOfPoints++;

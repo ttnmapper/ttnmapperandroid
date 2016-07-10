@@ -12,6 +12,11 @@
         android:title="Auto zoom map"
         app:actionViewClass="android.widget.CheckBox" />
     <item
+        android:id="@+id/menu_action_lordrive"
+        android:checkable="true"
+        android:title="LorDrive&#169; mode"
+        app:actionViewClass="android.widget.CheckBox" />
+    <item
         android:id="@+id/menu_action_exit"
         android:title="Exit" />
 </menu>
