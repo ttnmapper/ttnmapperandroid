@@ -1,7 +1,7 @@
 package com.jpmeijers.ttnmapper;
 
 /*
-Disable auto center when dragging the map:
+Disable auto centre when dragging the map:
 http://stackoverflow.com/questions/13702117/how-can-i-handle-map-move-end-using-google-maps-for-android-v2
  */
 
@@ -98,10 +98,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     Bitmap bmYellow;
     Bitmap bmOrange;
     Bitmap bmRed;
+
     //keep a list of all the markers
     List<Marker> markers = new ArrayList<Marker>();
+
     private int mqtt_retry_count = 0;
     private GoogleMap mMap;
+
     private boolean createFile;
     private String logType;
     private String loggingFilename;
@@ -118,22 +121,22 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         @Override
         public void onLocationChanged(final Location location) {
             /*
-            autocenter the map if:
+            autocentre the map if:
             the setting is on,
             and we moved more than 10 meters
-            or we have not centered the map at our location
+            or we have not centreed the map at our location
              */
             SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
-            if (myPrefs.getBoolean("autocentermap", false)) {
-                Location mapCenterLocation = new Location("");
-                mapCenterLocation.setLatitude(mMap.getCameraPosition().target.latitude);
-                mapCenterLocation.setLongitude(mMap.getCameraPosition().target.longitude);
-                if (currentLocation == null || location.distanceTo(mapCenterLocation) > 10) {
+            if (myPrefs.getBoolean("autocentremap", true)) {
+                Location mapCentreLocation = new Location("");
+                mapCentreLocation.setLatitude(mMap.getCameraPosition().target.latitude);
+                mapCentreLocation.setLongitude(mMap.getCameraPosition().target.longitude);
+                if (currentLocation == null || location.distanceTo(mapCentreLocation) > 10) {
                     mMap.animateCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
                 }
             }
 
-            if (myPrefs.getBoolean("autoscalemap", true)) {
+            if (myPrefs.getBoolean("autozoommap", true)) {
                 autoScaleMap();
             }
 
@@ -261,8 +264,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     public boolean onPrepareOptionsMenu(Menu menu) {
         super.onPrepareOptionsMenu(menu);
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
-        menu.findItem(R.id.menu_action_auto_center).setChecked(myPrefs.getBoolean("autocentermap", false));
-        menu.findItem(R.id.menu_action_auto_scale).setChecked(myPrefs.getBoolean("autoscalemap", true));
+        menu.findItem(R.id.menu_action_auto_centre).setChecked(myPrefs.getBoolean("autocentremap", true));
+        menu.findItem(R.id.menu_action_auto_zoom).setChecked(myPrefs.getBoolean("autozoommap", true));
         return true;
     }
 
@@ -272,27 +275,28 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
         SharedPreferences.Editor prefsEditor = myPrefs.edit();
         switch (item.getItemId()) {
-            case R.id.menu_action_auto_center:
+            case R.id.menu_action_auto_centre:
                 if (item.isChecked()) {
-                    Log.d(TAG, "Disabling auto center");
+                    Log.d(TAG, "Disabling auto centre");
                 } else {
-                    Log.d(TAG, "Enabling auto center");
+                    Log.d(TAG, "Enabling auto centre");
                 }
                 item.setChecked(!item.isChecked());
-                prefsEditor.putBoolean("autocentermap", item.isChecked());
+                prefsEditor.putBoolean("autocentremap", item.isChecked());
                 prefsEditor.apply();
                 return true;
-            case R.id.menu_action_auto_scale:
+            case R.id.menu_action_auto_zoom:
                 if (item.isChecked()) {
                     Log.d(TAG, "Disabling auto scale");
                 } else {
                     Log.d(TAG, "Enabling auto scale");
                 }
                 item.setChecked(!item.isChecked());
-                prefsEditor.putBoolean("autoscalemap", item.isChecked());
+                prefsEditor.putBoolean("autozoommap", item.isChecked());
                 prefsEditor.apply();
                 return true;
             case R.id.menu_action_exit:
+                //dismiss the menu first
                 exitApp();
                 return true;
             default:
@@ -452,7 +456,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
 
         mMap.setOnCameraChangeListener(this);
-        
+
 
 //        new GoogleMap.OnCameraChangeListener() {
 //            @Override
@@ -460,7 +464,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 ////                Log.d(TAG, "Camera position changed");
 //                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
 //
-//                if (myPrefs.getBoolean("autoscalemap", true))
+//                if (myPrefs.getBoolean("autozoommap", true))
 //                {
 //                    float maxZoom = 14.0f;
 //                    float minZoom = 2.0f;
@@ -473,10 +477,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 //                }
 //
 ////                if (mMapIsTouched) {
-////                    Log.d(TAG, "Disabling auto center because of map drag");
+////                    Log.d(TAG, "Disabling auto centre because of map drag");
 ////                    SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
 ////                    SharedPreferences.Editor prefsEditor = myPrefs.edit();
-////                    prefsEditor.putBoolean("autocentermap", false);
+////                    prefsEditor.putBoolean("autocentremap", true);
 ////                    prefsEditor.apply();
 ////                }
 //            }
@@ -1010,7 +1014,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             markers.add(marker);
 
             SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
-            if (myPrefs.getBoolean("autoscalemap", true)) {
+            if (myPrefs.getBoolean("autozoommap", true)) {
                 autoScaleMap();
             }
         }
@@ -1060,9 +1064,9 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         if (numberOfPoints > 0) {
 
-            //if we keep the map centered, add as much left as right, and top as bottom
+            //if we keep the map centred, add as much left as right, and top as bottom
             SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
-            if (myPrefs.getBoolean("autocentermap", true) && currentLocation != null) {
+            if (myPrefs.getBoolean("autocentremap", true) && currentLocation != null) {
                 if (currentLocation.getLatitude() > latMin && latMin != 0) {
                     builder.include(
                             new LatLng(
@@ -1382,7 +1386,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 //                Log.d(TAG, "Camera position changed");
 //                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
 //
-//                if (myPrefs.getBoolean("autoscalemap", true))
+//                if (myPrefs.getBoolean("autozoommap", true))
 //                {
 //                    float maxZoom = 14.0f;
 //                    float minZoom = 2.0f;
@@ -1395,10 +1399,10 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 //                }
 
 //                if (mMapIsTouched) {
-//                    Log.d(TAG, "Disabling auto center because of map drag");
+//                    Log.d(TAG, "Disabling auto centre because of map drag");
 //                    SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
 //                    SharedPreferences.Editor prefsEditor = myPrefs.edit();
-//                    prefsEditor.putBoolean("autocentermap", false);
+//                    prefsEditor.putBoolean("autocentremap", true);
 //                    prefsEditor.apply();
 //                }
     }

@@ -2,14 +2,14 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
-        android:id="@+id/menu_action_auto_center"
+        android:id="@+id/menu_action_auto_centre"
         android:checkable="true"
-        android:title="Auto center map"
+        android:title="Auto centre map"
         app:actionViewClass="android.widget.CheckBox" />
     <item
-        android:id="@+id/menu_action_auto_scale"
+        android:id="@+id/menu_action_auto_zoom"
         android:checkable="true"
-        android:title="Auto scale map"
+        android:title="Auto zoom map"
         app:actionViewClass="android.widget.CheckBox" />
     <item
         android:id="@+id/menu_action_exit"
