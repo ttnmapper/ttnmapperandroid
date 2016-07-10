@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/menu_action_auto_center"
+        android:checkable="true"
+        android:title="Auto center map"
+        app:actionViewClass="android.widget.CheckBox" />
+    <item
+        android:id="@+id/menu_action_auto_scale"
+        android:checkable="true"
+        android:title="Auto scale map"
+        app:actionViewClass="android.widget.CheckBox" />
+    <item
+        android:id="@+id/menu_action_exit"
+        android:title="Exit" />
+</menu>

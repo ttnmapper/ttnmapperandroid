@@ -46,7 +46,7 @@
 
         <activity
             android:name=".FirstQuestions"
-            android:label="TTNmapper">
+            android:label="TTN Mapper">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
@@ -55,13 +55,13 @@
         </activity>
         <activity
             android:name=".SecondQuestions"
-            android:label="TTNmapper - logging options" />
+            android:label="TTN Mapper - logging options" />
         <activity
             android:name=".ExpertQuestions"
-            android:label="TTNmapper - expert options" />
+            android:label="TTN Mapper - expert options" />
         <activity
             android:name=".CheckPermissions"
-            android:label="TTNmapper - permissions" />
+            android:label="TTN Mapper - permissions" />
     </application>
 
 </manifest>

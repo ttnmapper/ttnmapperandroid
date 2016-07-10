@@ -1,5 +1,10 @@
 package com.jpmeijers.ttnmapper;
 
+/*
+Disable auto center when dragging the map:
+http://stackoverflow.com/questions/13702117/how-can-i-handle-map-move-end-using-google-maps-for-android-v2
+ */
+
 import android.Manifest;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -7,6 +12,10 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
@@ -18,16 +27,26 @@ import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Toast;
 
+import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
-import com.google.android.gms.maps.model.CircleOptions;
+import com.google.android.gms.maps.model.BitmapDescriptor;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
+import com.google.android.gms.maps.model.Marker;
+import com.google.android.gms.maps.model.MarkerOptions;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 import org.eclipse.paho.client.mqttv3.IMqttActionListener;
@@ -46,6 +65,8 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -55,7 +76,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
-        implements OnMapReadyCallback, MqttCallback, ActivityCompat.OnRequestPermissionsResultCallback {
+        implements OnMapReadyCallback, MqttCallback, ActivityCompat.OnRequestPermissionsResultCallback, GoogleMap.OnCameraChangeListener {
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     public static final String TAG = "TTNMapsActivity";
     /**
@@ -63,9 +84,23 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
      */
     private static final int REQUEST_LOCATION_PERMISSION = 0;
     private static final int REQUEST_FILE_PERMISSION = 1;
-
+    BitmapDescriptor circleBlack = null;
+    BitmapDescriptor circleBlue = null;
+    BitmapDescriptor circleCyan = null;
+    BitmapDescriptor circleGreen = null;
+    BitmapDescriptor circleYellow = null;
+    BitmapDescriptor circleOrange = null;
+    BitmapDescriptor circleRed = null;
+    Bitmap bmBlack;
+    Bitmap bmBlue;
+    Bitmap bmCyan;
+    Bitmap bmGreen;
+    Bitmap bmYellow;
+    Bitmap bmOrange;
+    Bitmap bmRed;
+    //keep a list of all the markers
+    List<Marker> markers = new ArrayList<Marker>();
     private int mqtt_retry_count = 0;
-
     private GoogleMap mMap;
     private boolean createFile;
     private String logType;
@@ -77,19 +112,32 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     private String backend;
     private String nodeaddr; //only for croft backend
     private String experimentName;
-
     private LocationManager mLocationManager;
     private Location currentLocation;
-
     private final LocationListener mLocationListener = new LocationListener() {
         @Override
         public void onLocationChanged(final Location location) {
-            Location mapCenterLocation = new Location("");
-            mapCenterLocation.setLatitude(mMap.getCameraPosition().target.latitude);
-            mapCenterLocation.setLongitude(mMap.getCameraPosition().target.longitude);
-            if (currentLocation == null || location.distanceTo(mapCenterLocation) > 10) {
-                mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+            /*
+            autocenter the map if:
+            the setting is on,
+            and we moved more than 10 meters
+            or we have not centered the map at our location
+             */
+            SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
+            if (myPrefs.getBoolean("autocentermap", false)) {
+                Location mapCenterLocation = new Location("");
+                mapCenterLocation.setLatitude(mMap.getCameraPosition().target.latitude);
+                mapCenterLocation.setLongitude(mMap.getCameraPosition().target.longitude);
+                if (currentLocation == null || location.distanceTo(mapCenterLocation) > 10) {
+                    mMap.animateCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+                }
             }
+
+            if (myPrefs.getBoolean("autoscalemap", true)) {
+                autoScaleMap();
+            }
+
+            //save
             currentLocation = location;
         }
 
@@ -108,6 +156,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         }
     };
+    private boolean mMapIsTouched;
 
     Call postToServer(String url, String json, Callback callback) throws IOException {
         RequestBody body = RequestBody.create(JSON, json);
@@ -119,6 +168,20 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         Call call = myApp.getHttpClient().newCall(request);
         call.enqueue(callback);
         return call;
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        Log.d(TAG, "Touch event");
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                mMapIsTouched = true;
+                break;
+            case MotionEvent.ACTION_UP:
+                mMapIsTouched = false;
+                break;
+        }
+        return super.onTouchEvent(event);
     }
 
     @Override
@@ -135,36 +198,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 .setCancelable(false)
                 .setPositiveButton("Stop logging", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface dialog, int id) {
-                        // if this button is clicked, close
-                        // current activity
-                        MyApp myApp = (MyApp) getApplication();
-
-                        myApp.setClosingDown(true);
-
-                        //MQTT unsubscribe
-                        try {
-                            myApp.getMyMQTTclient().disconnect();
-//                            myApp.getMyMQTTclient().disconnectForcibly(1);
-                        } catch (MqttException e) {
-                            e.printStackTrace();
-                        }
-
-                        //GPS position updates unsubscribe
-                        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                            try {
-                                mLocationManager.removeUpdates(mLocationListener);
-                                Log.d(TAG, "GPS updates removed");
-                            } catch (Exception e) {
-                                Log.d(TAG, "Can not remove gps updates");
-                            }
-                        }
-
-                        //force the creation of a new MQTT object after we manually stop the logging.
-                        //This is only needed to be able to connect to a different backend during the same session.
-                        myApp.setMQTTclient(null);
-
-                        //end this activity
-                        MapsActivity.this.finish();
+                        exitApp();
                     }
                 })
                 .setNegativeButton("Continue logging", new DialogInterface.OnClickListener() {
@@ -180,6 +214,91 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         // show it
         alertDialog.show();
+    }
+
+    void exitApp() {
+        // if this button is clicked, close
+        // current activity
+        MyApp myApp = (MyApp) getApplication();
+
+        myApp.setClosingDown(true);
+
+        //MQTT unsubscribe
+        try {
+            myApp.getMyMQTTclient().disconnect();
+//                            myApp.getMyMQTTclient().disconnectForcibly(1);
+        } catch (MqttException e) {
+            e.printStackTrace();
+        }
+
+        //GPS position updates unsubscribe
+        if (ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                mLocationManager.removeUpdates(mLocationListener);
+                Log.d(TAG, "GPS updates removed");
+            } catch (Exception e) {
+                Log.d(TAG, "Can not remove gps updates");
+            }
+        }
+
+        //force the creation of a new MQTT object after we manually stop the logging.
+        //This is only needed to be able to connect to a different backend during the same session.
+        myApp.setMQTTclient(null);
+
+        //end this activity
+        MapsActivity.this.finish();
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        MenuInflater inflater = getMenuInflater();
+        inflater.inflate(R.menu.map_options_menu, menu);
+
+        return true;
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        super.onPrepareOptionsMenu(menu);
+        SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+        menu.findItem(R.id.menu_action_auto_center).setChecked(myPrefs.getBoolean("autocentermap", false));
+        menu.findItem(R.id.menu_action_auto_scale).setChecked(myPrefs.getBoolean("autoscalemap", true));
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        // Handle item selection
+        SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+        SharedPreferences.Editor prefsEditor = myPrefs.edit();
+        switch (item.getItemId()) {
+            case R.id.menu_action_auto_center:
+                if (item.isChecked()) {
+                    Log.d(TAG, "Disabling auto center");
+                } else {
+                    Log.d(TAG, "Enabling auto center");
+                }
+                item.setChecked(!item.isChecked());
+                prefsEditor.putBoolean("autocentermap", item.isChecked());
+                prefsEditor.apply();
+                return true;
+            case R.id.menu_action_auto_scale:
+                if (item.isChecked()) {
+                    Log.d(TAG, "Disabling auto scale");
+                } else {
+                    Log.d(TAG, "Enabling auto scale");
+                }
+                item.setChecked(!item.isChecked());
+                prefsEditor.putBoolean("autoscalemap", item.isChecked());
+                prefsEditor.apply();
+                return true;
+            case R.id.menu_action_exit:
+                exitApp();
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
+
     }
 
     @Override
@@ -331,6 +450,37 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         // Zoom in the Google Map
         mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
+
+        mMap.setOnCameraChangeListener(this);
+        
+
+//        new GoogleMap.OnCameraChangeListener() {
+//            @Override
+//            public void onCameraChange(CameraPosition cameraPosition) {
+////                Log.d(TAG, "Camera position changed");
+//                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
+//
+//                if (myPrefs.getBoolean("autoscalemap", true))
+//                {
+//                    float maxZoom = 14.0f;
+//                    float minZoom = 2.0f;
+//
+//                    if (cameraPosition.zoom > maxZoom) {
+//                        mMap.animateCamera(CameraUpdateFactory.zoomTo(maxZoom));
+//                    } else if (cameraPosition.zoom < minZoom) {
+//                        mMap.animateCamera(CameraUpdateFactory.zoomTo(minZoom));
+//                    }
+//                }
+//
+////                if (mMapIsTouched) {
+////                    Log.d(TAG, "Disabling auto center because of map drag");
+////                    SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
+////                    SharedPreferences.Editor prefsEditor = myPrefs.edit();
+////                    prefsEditor.putBoolean("autocentermap", false);
+////                    prefsEditor.apply();
+////                }
+//            }
+//        });
     }
 
     private void requestPositionPermission() {
@@ -773,31 +923,193 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
     }
 
+    void createMarkers() {
+        int d = 30; // diameter
+        if (circleBlack == null) {
+            bmBlack = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmBlack);
+            Paint p = new Paint();
+            p.setColor(0x7f000000);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleBlack = BitmapDescriptorFactory.fromBitmap(bmBlack);
+        }
+        if (circleBlue == null) {
+            bmBlue = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmBlue);
+            Paint p = new Paint();
+            p.setColor(0x7f0000ff);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleBlue = BitmapDescriptorFactory.fromBitmap(bmBlue);
+        }
+        if (circleCyan == null) {
+            bmCyan = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmCyan);
+            Paint p = new Paint();
+            p.setColor(0x7f00ffff);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleCyan = BitmapDescriptorFactory.fromBitmap(bmCyan);
+        }
+        if (circleGreen == null) {
+            bmGreen = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmGreen);
+            Paint p = new Paint();
+            p.setColor(0x7f00ff00);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleGreen = BitmapDescriptorFactory.fromBitmap(bmGreen);
+        }
+        if (circleYellow == null) {
+            bmYellow = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmYellow);
+            Paint p = new Paint();
+            p.setColor(0x7fffff00);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleYellow = BitmapDescriptorFactory.fromBitmap(bmYellow);
+        }
+        if (circleOrange == null) {
+            bmOrange = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmOrange);
+            Paint p = new Paint();
+            p.setColor(0x7fff7f00);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleOrange = BitmapDescriptorFactory.fromBitmap(bmOrange);
+        }
+        if (circleRed == null) {
+            bmRed = Bitmap.createBitmap(d, d, Bitmap.Config.ARGB_8888);
+            Canvas c = new Canvas(bmRed);
+            Paint p = new Paint();
+            p.setColor(0x7fff0000);
+            c.drawCircle(d / 2, d / 2, d / 2, p);
+            circleRed = BitmapDescriptorFactory.fromBitmap(bmRed);
+        }
+    }
+
+
     void addMarker(Location location, double rssi) {
         if (mMap != null) {
-            CircleOptions options = new CircleOptions()
-                    .center(new LatLng(location.getLatitude(), location.getLongitude()))
-                    .radius(15)
-                    .strokeColor(0x00000000);
+            createMarkers();
+            MarkerOptions options = new MarkerOptions();
 
             if (rssi == 0) {
-                options.fillColor(0x7f000000);
+                options.icon(circleBlack);
             } else if (rssi < -120) {
-                options.fillColor(0x7f0000ff);
+                options.icon(circleBlue);
             } else if (rssi < -110) {
-                options.fillColor(0x7f00ffff);
+                options.icon(circleCyan);
             } else if (rssi < -100) {
-                options.fillColor(0x7f00ff00);
+                options.icon(circleGreen);
             } else if (rssi < -90) {
-                options.fillColor(0x7fffff00);
+                options.icon(circleYellow);
             } else if (rssi < -80) {
-                options.fillColor(0x7fff7f00);
+                options.icon(circleOrange);
             } else {
-                options.fillColor(0x7fff0000);
+                options.icon(circleRed);
+            }
+            options.position(new LatLng(location.getLatitude(), location.getLongitude()));
+            options.anchor((float) 0.5, (float) 0.5);
+            Marker marker = mMap.addMarker(options);
+            markers.add(marker);
+
+            SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+            if (myPrefs.getBoolean("autoscalemap", true)) {
+                autoScaleMap();
+            }
+        }
+    }
+
+    int getNavigationBarHeight() {
+        Resources resources = getApplicationContext().getResources();
+        int resourceId = resources.getIdentifier("navigation_bar_height", "dimen", "android");
+        if (resourceId > 0) {
+            return resources.getDimensionPixelSize(resourceId);
+        }
+        return 0;
+    }
+
+    void autoScaleMap() {
+        //http://stackoverflow.com/questions/14828217/android-map-v2-zoom-to-show-all-the-markers
+        int numberOfPoints = 0;
+        double latMin = 0;
+        double latMax = 0;
+        double lonMin = 0;
+        double lonMax = 0;
+
+        LatLngBounds.Builder builder = new LatLngBounds.Builder();
+        for (Marker marker : markers) {
+            LatLng markerPosition = marker.getPosition();
+            builder.include(markerPosition);
+            numberOfPoints++;
+
+            if (latMin == 0 || markerPosition.latitude < latMin) {
+                latMin = markerPosition.latitude;
+            }
+            if (latMax == 0 || markerPosition.latitude > latMax) {
+                latMax = markerPosition.latitude;
+            }
+            if (lonMin == 0 || markerPosition.longitude < lonMin) {
+                lonMin = markerPosition.longitude;
+            }
+            if (lonMax == 0 || markerPosition.longitude > lonMax) {
+                lonMax = markerPosition.longitude;
+            }
+        }
+        if (currentLocation != null) {
+            builder.include(new LatLng(currentLocation.getLatitude(), currentLocation.getLongitude()));
+
+            numberOfPoints++;
+        }
+
+        if (numberOfPoints > 0) {
+
+            //if we keep the map centered, add as much left as right, and top as bottom
+            SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+            if (myPrefs.getBoolean("autocentermap", true) && currentLocation != null) {
+                if (currentLocation.getLatitude() > latMin && latMin != 0) {
+                    builder.include(
+                            new LatLng(
+                                    currentLocation.getLatitude() + (currentLocation.getLatitude() - latMin),
+                                    currentLocation.getLongitude()
+                            )
+                    );
+                }
+
+                if (latMax > currentLocation.getLatitude() && latMax != 0) {
+                    builder.include(
+                            new LatLng(
+                                    currentLocation.getLatitude() - (latMax - currentLocation.getLatitude()),
+                                    currentLocation.getLongitude()
+                            )
+                    );
+                }
+
+                if (currentLocation.getLongitude() > lonMin && lonMin != 0) {
+                    builder.include(
+                            new LatLng(
+                                    currentLocation.getLatitude(),
+                                    currentLocation.getLongitude() + (currentLocation.getLongitude() - lonMin)
+                            )
+                    );
+                }
+
+                if (lonMax > currentLocation.getLongitude() && lonMax != 0) {
+                    builder.include(
+                            new LatLng(
+                                    currentLocation.getLatitude(),
+                                    currentLocation.getLongitude() - (lonMax - currentLocation.getLongitude())
+                            )
+                    );
+                }
             }
 
-            mMap.addCircle(options);
-            //mMap.moveCamera(CameraUpdateFactory.newLatLng(new LatLng(location.getLatitude(), location.getLongitude())));
+            LatLngBounds bounds = builder.build();
+
+            int padding = getNavigationBarHeight(); // offset from edges of the map in pixels
+            CameraUpdate cu = CameraUpdateFactory.newLatLngBounds(bounds, padding);
+
+
+            //Finally move the map:
+            //mMap.moveCamera(cu);
+            //Or if you want an animation:
+            mMap.animateCamera(cu);
         }
     }
 
@@ -1065,4 +1377,29 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
+    @Override
+    public void onCameraChange(CameraPosition cameraPosition) { //this is onnly called after an animation is done
+//                Log.d(TAG, "Camera position changed");
+//                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
+//
+//                if (myPrefs.getBoolean("autoscalemap", true))
+//                {
+//                    float maxZoom = 14.0f;
+//                    float minZoom = 2.0f;
+//
+//                    if (cameraPosition.zoom > maxZoom) {
+//                        mMap.animateCamera(CameraUpdateFactory.zoomTo(maxZoom));
+//                    } else if (cameraPosition.zoom < minZoom) {
+//                        mMap.animateCamera(CameraUpdateFactory.zoomTo(minZoom));
+//                    }
+//                }
+
+//                if (mMapIsTouched) {
+//                    Log.d(TAG, "Disabling auto center because of map drag");
+//                    SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
+//                    SharedPreferences.Editor prefsEditor = myPrefs.edit();
+//                    prefsEditor.putBoolean("autocentermap", false);
+//                    prefsEditor.apply();
+//                }
+    }
 }
