@@ -2,14 +2,18 @@ package com.jpmeijers.ttnmapper;
 
 import android.app.Application;
 
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import okhttp3.OkHttpClient;
 
@@ -21,6 +25,10 @@ public class MyApp extends Application {
     List<MarkerOptions> markers = new ArrayList<>();
     List<PolylineOptions> lines = new ArrayList<>();
     List<MarkerOptions> gwMarkers = new ArrayList<>();
+    Map<String, ArrayList<PolygonOptions>> gwCoverage = new HashMap<>();
+    Map<String, ArrayList<MarkerOptions>> gwCoverageMarkers = new HashMap<>();
+    LatLngBounds lastViewBounds = null;
+
     private MqttAndroidClient myMQTTclient;
     private OkHttpClient client;
     private boolean closingDown = false;
@@ -72,5 +80,21 @@ public class MyApp extends Application {
 
     public List<PolylineOptions> getLines() {
         return lines;
+    }
+
+    public Map<String, ArrayList<PolygonOptions>> getGwCoverage() {
+        return gwCoverage;
+    }
+
+    public Map<String, ArrayList<MarkerOptions>> getGwCoverageMarkers() {
+        return gwCoverageMarkers;
+    }
+
+    public LatLngBounds getLastViewBounds() {
+        return lastViewBounds;
+    }
+
+    public void setLastViewBounds(LatLngBounds bounds) {
+        lastViewBounds = bounds;
     }
 }

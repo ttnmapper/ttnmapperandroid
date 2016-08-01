@@ -17,6 +17,11 @@
         android:title="LorDrive&#169; mode"
         app:actionViewClass="android.widget.CheckBox" />
     <item
+        android:id="@+id/menu_action_coverage"
+        android:checkable="true"
+        android:title="Show coverage"
+        app:actionViewClass="android.widget.CheckBox" />
+    <item
         android:id="@+id/menu_action_exit"
         android:title="Exit" />
 </menu>

@@ -18,4 +18,5 @@
     <string name="permission_available_file">Permission to write a file granted.</string>
     <string name="permissions_not_file">No permission to write a file</string>
     <string name="tcp_staging_thethingsnetwork_org_1883">tcp://staging.thethingsnetwork.org:1883</string>
+    <string name="api_url">http://ttnmapper.org/appapi/</string>
 </resources>

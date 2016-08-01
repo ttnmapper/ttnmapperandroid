@@ -8,21 +8,21 @@ http://stackoverflow.com/questions/13702117/how-can-i-handle-map-move-end-using-
 import android.Manifest;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.design.widget.Snackbar;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
@@ -31,10 +31,10 @@ import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
-import android.view.View;
 import android.view.WindowManager;
 import android.widget.Toast;
 
+import com.google.android.gms.iid.InstanceID;
 import com.google.android.gms.maps.CameraUpdate;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
@@ -43,10 +43,14 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.BitmapDescriptor;
 import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.GroundOverlay;
+import com.google.android.gms.maps.model.GroundOverlayOptions;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.PolygonOptions;
 import com.google.android.gms.maps.model.PolylineOptions;
+import com.google.android.gms.maps.model.TileOverlayOptions;
 
 import org.eclipse.paho.android.service.MqttAndroidClient;
 import org.eclipse.paho.client.mqttv3.IMqttActionListener;
@@ -65,6 +69,9 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.util.ArrayList;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -263,6 +270,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         menu.findItem(R.id.menu_action_auto_centre).setChecked(myPrefs.getBoolean("autocentremap", true));
         menu.findItem(R.id.menu_action_auto_zoom).setChecked(myPrefs.getBoolean("autozoommap", true));
         menu.findItem(R.id.menu_action_lordrive).setChecked(myPrefs.getBoolean("lordrive", true));
+        menu.findItem(R.id.menu_action_coverage).setChecked(myPrefs.getBoolean("coverage", true));
         return true;
     }
 
@@ -303,6 +311,17 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 prefsEditor.apply();
                 clearMapAddMarkersLines();
                 return true;
+            case R.id.menu_action_coverage:
+                if (item.isChecked()) {
+                    Log.d(TAG, "Disabling coverage");
+                } else {
+                    Log.d(TAG, "Enabling coverage");
+                }
+                item.setChecked(!item.isChecked());
+                prefsEditor.putBoolean("coverage", item.isChecked());
+                prefsEditor.apply();
+                clearMapAddMarkersLines();
+                return true;
             case R.id.menu_action_exit:
                 //dismiss the menu first
                 exitApp();
@@ -318,14 +337,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         Log.d(TAG, "onCreate");
         super.onCreate(savedInstanceState);
 
+
         setContentView(R.layout.activity_maps);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
         //mapFragment.setRetainInstance(true);
-
-        Intent intent = getIntent();
 
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
         backend = myPrefs.getString("backend", "staging");
@@ -363,42 +381,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         mqtt_connect();
 
         // Check permissions
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPositionPermission();
-        }
-        if (createFile) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                requestFilePermission();
-            }
-        }
-
-        //subscribe to position updates
-        mLocationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
-        mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0/*seconds*/,
-                0/*meter*/, mLocationListener);
-    }
-
-    private void requestFilePermission() {
-        Log.i(TAG, "FILE permission has NOT been granted. Requesting permission.");
-
-        if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-            Log.i(TAG, "Displaying file permission rationale to provide additional context.");
-            Snackbar.make(findViewById(R.id.map), R.string.permission_file_rationale,
-                    Snackbar.LENGTH_INDEFINITE)
-                    .setAction(R.string.ok, new View.OnClickListener() {
-                        @Override
-                        public void onClick(View view) {
-                            ActivityCompat.requestPermissions(MapsActivity.this,
-                                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                                    REQUEST_FILE_PERMISSION);
-                        }
-                    })
-                    .show();
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            //subscribe to position updates
+            mLocationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            mLocationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0/*seconds*/, 0/*meter*/, mLocationListener);
         } else {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                    REQUEST_FILE_PERMISSION);
+            Toast.makeText(getApplicationContext(), "No permission to obtain GPS location", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -417,7 +406,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         try {
             MyApp myApp = (MyApp) getApplication();
             if (myApp.isClosingDown()) {
-                if (myApp.getMyMQTTclient() != null) {
+                if (myApp.getMyMQTTclient() != null && myApp.getMyMQTTclient().isConnected()) {
                     myApp.getMyMQTTclient().disconnect();
                 }
             }
@@ -444,113 +433,27 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
 
-        // Zoom in the Google Map
-        mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
-
         // set map type
         mMap.setMapType(GoogleMap.MAP_TYPE_NORMAL);
 
         // Enable MyLocation Layer of Google Map
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
-                && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPositionPermission();
-            return;
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                || ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+
+            mMap.setMyLocationEnabled(true);
         }
-        mMap.setMyLocationEnabled(true);
 
         // Show the current location in Google Map
-        mMap.moveCamera(CameraUpdateFactory.newLatLng(getLatestLatLng()));
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(52.369, 4.895), (float) 13));
 
         // Zoom in the Google Map
-        mMap.animateCamera(CameraUpdateFactory.zoomTo(16));
+        //mMap.moveCamera(CameraUpdateFactory.newLatLng(getLatestLatLng()));
+        //mMap.animateCamera(CameraUpdateFactory.zoomTo((float)13));
 
         mMap.setOnCameraChangeListener(this);
 
         clearMapAddMarkersLines();
 
-//        new GoogleMap.OnCameraChangeListener() {
-//            @Override
-//            public void onCameraChange(CameraPosition cameraPosition) {
-////                Log.d(TAG, "Camera position changed");
-//                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
-//
-//                if (myPrefs.getBoolean("autozoommap", true))
-//                {
-//                    float maxZoom = 14.0f;
-//                    float minZoom = 2.0f;
-//
-//                    if (cameraPosition.zoom > maxZoom) {
-//                        mMap.animateCamera(CameraUpdateFactory.zoomTo(maxZoom));
-//                    } else if (cameraPosition.zoom < minZoom) {
-//                        mMap.animateCamera(CameraUpdateFactory.zoomTo(minZoom));
-//                    }
-//                }
-//
-////                if (mMapIsTouched) {
-////                    Log.d(TAG, "Disabling auto centre because of map drag");
-////                    SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
-////                    SharedPreferences.Editor prefsEditor = myPrefs.edit();
-////                    prefsEditor.putBoolean("autocentremap", true);
-////                    prefsEditor.apply();
-////                }
-//            }
-//        });
-    }
-
-    private void requestPositionPermission() {
-        Log.i(TAG, "LOCATION permission has NOT been granted. Requesting permission.");
-
-        if (ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                || ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.ACCESS_COARSE_LOCATION)) {
-            Log.i(TAG, "Displaying location permission rationale to provide additional context.");
-            Snackbar.make(findViewById(R.id.map), R.string.permission_location_rationale,
-                    Snackbar.LENGTH_INDEFINITE)
-                    .setAction(R.string.ok, new View.OnClickListener() {
-                        @Override
-                        public void onClick(View view) {
-                            ActivityCompat.requestPermissions(MapsActivity.this,
-                                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-                                    REQUEST_LOCATION_PERMISSION);
-                        }
-                    })
-                    .show();
-        } else {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION},
-                    REQUEST_LOCATION_PERMISSION);
-        }
-    }
-
-    /**
-     * Callback received when a permissions request has been completed.
-     */
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-
-        if (requestCode == REQUEST_LOCATION_PERMISSION) {
-            if (grantResults[0] == PackageManager.PERMISSION_GRANTED || grantResults[1] == PackageManager.PERMISSION_GRANTED) {
-                Log.i(TAG, "LOCATION permission has now been granted.");
-                Snackbar.make(findViewById(R.id.map), R.string.permission_available_location,
-                        Snackbar.LENGTH_SHORT).show();
-            } else {
-                Log.i(TAG, "LOCATION permission was NOT granted.");
-                Snackbar.make(findViewById(R.id.map), R.string.permissions_not_location,
-                        Snackbar.LENGTH_SHORT).show();
-            }
-        }
-        if (requestCode == REQUEST_FILE_PERMISSION) {
-            if (grantResults[0] == PackageManager.PERMISSION_GRANTED || grantResults[1] == PackageManager.PERMISSION_GRANTED) {
-                Log.i(TAG, "FILE permission has now been granted.");
-                Snackbar.make(findViewById(R.id.map), R.string.permission_available_file,
-                        Snackbar.LENGTH_SHORT).show();
-            } else {
-                Log.i(TAG, "FILE permission was NOT granted.");
-                Snackbar.make(findViewById(R.id.map), R.string.permissions_not_file,
-                        Snackbar.LENGTH_SHORT).show();
-            }
-        } else {
-            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        }
     }
 
     //get old, but latest location - only use for camera position
@@ -601,24 +504,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         return locationManager.getLastKnownLocation(provider);
     }
 
+    //This function might return null if we do not have a good gps fix yet. Use this for packet geotagging.
     private Location getCurrentLocation() {
-        // Enable MyLocation Layer of Google Map
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Toast.makeText(getApplicationContext(), "No permission to get location information.", Toast.LENGTH_LONG).show();
-            return null;
-        }
-        //    // Get LocationManager object from System Service LOCATION_SERVICE
-        //    LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        //
-        //    // Create a criteria object to retrieve provider
-        //    Criteria criteria = new Criteria();
-        //    criteria.setAccuracy(Criteria.ACCURACY_FINE);
-        //
-        //    // Get the name of the best provider
-        //    String provider = locationManager.getBestProvider(criteria, true);
-        //
-        //    // Get Current Location
-        //    return locationManager.getLastKnownLocation(provider);
         return currentLocation;
     }
 
@@ -668,15 +555,36 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
                     mqtt_retry_count++;
 
-                    if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
-                        runOnUiThread(new Runnable() {
-                            public void run() {
-                                Toast.makeText(getApplicationContext(), "Can not connect to MQTT. Check your internet connection, AppEUI and Access Key.", Toast.LENGTH_LONG).show();
+                    if (exception instanceof MqttException) {
+                        final MqttException mqttException = (MqttException) exception;
+                        Log.d(TAG, "code=" + mqttException.getReasonCode());
+                        if (mqttException.getReasonCode() == 0) {
+                            if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
+                                runOnUiThread(new Runnable() {
+                                    public void run() {
+                                        Toast.makeText(getApplicationContext(), "MQTT error: check your internet connection.", Toast.LENGTH_LONG).show();
+                                    }
+                                });
                             }
-                        });
+                        } else if (mqttException.getReasonCode() == 5) {
+                            if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
+                                runOnUiThread(new Runnable() {
+                                    public void run() {
+                                        Toast.makeText(getApplicationContext(), "MQTT error: Incorrect AppEUI or Access Key.", Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                            }
+                        } else {
+                            if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
+                                runOnUiThread(new Runnable() {
+                                    public void run() {
+                                        Toast.makeText(getApplicationContext(), "MQTT error: " + mqttException.getMessage(), Toast.LENGTH_LONG).show();
+                                    }
+                                });
+                            }
+                        }
                     }
 
-                    exception.printStackTrace();
 
                     final Handler handler = new Handler();
                     handler.postDelayed(new Runnable() {
@@ -1029,10 +937,11 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     myApp.getLines().add(options);
 
                     MarkerOptions gwoptions = new MarkerOptions();
-                    gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_marker));
+                    gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
                     gwoptions.position(new LatLng(gwLat, gwLon));
                     gwoptions.title(gateway.getString("gateway_eui"));
-                    gwoptions.anchor((float) 0.5, 1);
+                    gwoptions.anchor((float) 0.5, (float) 0.5);
+
 
                     myApp.getGatewayMarkers().add(gwoptions);
 
@@ -1057,13 +966,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 options.icon(circleBlack);
             } else if (rssi < -120) {
                 options.icon(circleBlue);
-            } else if (rssi < -110) {
+            } else if (rssi < -115) {
                 options.icon(circleCyan);
-            } else if (rssi < -100) {
+            } else if (rssi < -110) {
                 options.icon(circleGreen);
-            } else if (rssi < -90) {
+            } else if (rssi < -105) {
                 options.icon(circleYellow);
-            } else if (rssi < -80) {
+            } else if (rssi < -100) {
                 options.icon(circleOrange);
             } else {
                 options.icon(circleRed);
@@ -1079,16 +988,25 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     }
 
     public void clearMapAddMarkersLines() {
+        SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+        MyApp myApp = (MyApp) getApplication();
+
         if (mMap != null) {
             //clear map
             mMap.clear();
 
-            MyApp myApp = (MyApp) getApplication();
+            if (myPrefs.getBoolean("coverage", true)) {
+                CoverageTileProvider mTileProvider = new CoverageTileProvider(256, 256, "http://ttnmapper.org/tms/?tile={z}/{x}/{y}");
+                TileOverlayOptions options = new TileOverlayOptions();
+                options.tileProvider(mTileProvider);
+                options.transparency((float) 0.8);
+                mMap.addTileOverlay(options);
+            }
+
             for (MarkerOptions options : myApp.getMarkers()) {
                 mMap.addMarker(options);
             }
 
-            SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
             if (myPrefs.getBoolean("lordrive", true)) {
                 for (MarkerOptions options : myApp.getGatewayMarkers()) {
                     mMap.addMarker(options);
@@ -1103,6 +1021,249 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             }
         }
 
+    }
+
+
+    void addCoverageImage() {
+        LatLngBounds bounds = mMap.getProjection().getVisibleRegion().latLngBounds;
+        final int lat = (int) bounds.southwest.latitude;
+        final int lon = (int) bounds.southwest.longitude;
+        AsyncTask.execute(new Runnable() {
+            @Override
+            public void run() {
+                URL url = null;
+                try {
+                    url = new URL("http://ttnmapper.org/tiles/" + lat + "_" + lon + "_0.0005.png");
+                    BitmapFactory.Options o2 = new BitmapFactory.Options();
+                    o2.inDither = false;
+                    o2.inSampleSize = 4;
+                    Bitmap image = BitmapFactory.decodeStream(url.openConnection().getInputStream());
+                    image = Bitmap.createScaledBitmap(image, image.getWidth() * 20, image.getHeight() * 20, false);
+                    BitmapDescriptor imageDescriptor = BitmapDescriptorFactory.fromBitmap(image);
+
+
+                    final GroundOverlayOptions options = new GroundOverlayOptions();
+                    options.image(imageDescriptor);
+                    options.positionFromBounds(new LatLngBounds(new LatLng(lat, lon), new LatLng(lat + 1, lon + 1)));
+
+
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            GroundOverlay overlay = mMap.addGroundOverlay(options);
+
+                        }
+                    });
+
+                } catch (MalformedURLException e) {
+                    e.printStackTrace();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+
+    }
+
+    void downloadCoverage() {
+        JSONObject data = new JSONObject();
+        LatLngBounds bounds = mMap.getProjection().getVisibleRegion().latLngBounds;
+        //build {"_sw":{"lng":6.715497156312011,"lat":52.159068901046254},"_ne":{"lng":7.0063341279171425,"lat":52.296423335685716}, "iid": 12345}
+        JSONObject sw = new JSONObject();
+        JSONObject ne = new JSONObject();
+        String dataString = "";
+        try {
+            sw.put("lng", bounds.southwest.longitude);
+            sw.put("lat", bounds.southwest.latitude);
+            ne.put("lng", bounds.northeast.longitude);
+            ne.put("lat", bounds.northeast.latitude);
+            data.put("_sw", sw);
+            data.put("_ne", ne);
+            data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
+            dataString = data.toString();
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+
+        Log.d(TAG, "HTTP post: " + dataString);
+        try {
+            postToServer(getString(R.string.api_url) + "gwbbox.php", dataString, new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    e.printStackTrace();
+                }
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    if (response.isSuccessful()) {
+                        final String returnedString = response.body().string();
+                        System.out.println("HTTP response: " + returnedString);
+                        // Do what you want to do with the response.
+                        try {
+                            JSONObject receivedData = new JSONObject(returnedString);
+                            JSONArray gateways = receivedData.getJSONArray("gateways");
+                            for (int i = 0; i < gateways.length(); i++) {
+                                downloadOneGateway(gateways.getString(i));
+                            }
+                        } catch (JSONException e) {
+                            e.printStackTrace();
+                        }
+
+                    } else {
+                        // Request not successful
+                    }
+                }
+            });
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    void downloadOneGateway(final String gwaddr) {
+        MyApp myApp = (MyApp) getApplication();
+        final ArrayList<PolygonOptions> polygons = new ArrayList<>();
+        final ArrayList<MarkerOptions> markers = new ArrayList<>();
+
+        if (myApp.getGwCoverage().containsKey(gwaddr)) {
+            plotCoverageOneGateway(gwaddr);
+        } else {
+            JSONObject data = new JSONObject();
+
+            String dataString = "";
+            try {
+                data.put("resolution", "0.0005");
+                data.put("gateway", gwaddr);
+                data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
+                dataString = data.toString();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+
+            Log.d(TAG, "HTTP post: " + dataString);
+            try {
+                postToServer(getString(R.string.api_url) + "getPointsForGateway.php", dataString, new Callback() {
+                    @Override
+                    public void onFailure(Call call, IOException e) {
+                        e.printStackTrace();
+                    }
+
+                    @Override
+                    public void onResponse(Call call, Response response) throws IOException {
+                        if (response.isSuccessful()) {
+                            final String returnedString = response.body().string();
+                            System.out.println("HTTP response: " + returnedString);
+                            // Do what you want to do with the response.
+
+                            try {
+                                JSONObject gateway = new JSONObject(returnedString);
+                                JSONArray points = gateway.getJSONArray("points");
+                                for (int i = 0; i < points.length(); i++) {
+                                    JSONObject point = points.getJSONObject(i);
+
+//                                    PolygonOptions square = new PolygonOptions();
+//
+//                                    square.add(new LatLng(point.getDouble("lat") - 0.00025, point.getDouble("lon") - 0.00025));
+//                                    square.add(new LatLng(point.getDouble("lat") - 0.00025, point.getDouble("lon") + 0.00025));
+//                                    square.add(new LatLng(point.getDouble("lat") + 0.00025, point.getDouble("lon") + 0.00025));
+//                                    square.add(new LatLng(point.getDouble("lat") + 0.00025, point.getDouble("lon") - 0.00025));
+//
+                                    double rssi = point.getDouble("rssiavg");
+//                                    if (rssi == 0) {
+//                                        square.fillColor(0x7f000000);
+//                                    } else if (rssi < -120) {
+//                                        square.fillColor(0x7f0000ff);
+//                                    } else if (rssi < -110) {
+//                                        square.fillColor(0x7f00ffff);
+//                                    } else if (rssi < -100) {
+//                                        square.fillColor(0x7f00ff00);
+//                                    } else if (rssi < -90) {
+//                                        square.fillColor(0x7fffff00);
+//                                    } else if (rssi < -80) {
+//                                        square.fillColor(0x7fff7f00);
+//                                    } else {
+//                                        square.fillColor(0x7fff0000);
+//                                    }
+//
+////                                    square.zIndex(-100);
+//                                    square.strokeWidth(0);
+//                                    polygons.add(square);
+
+                                    MarkerOptions options = new MarkerOptions();
+                                    createMarkerBitmaps();
+
+                                    if (rssi == 0) {
+                                        options.icon(circleBlack);
+                                    } else if (rssi < -120) {
+                                        options.icon(circleBlue);
+                                    } else if (rssi < -115) {
+                                        options.icon(circleCyan);
+                                    } else if (rssi < -110) {
+                                        options.icon(circleGreen);
+                                    } else if (rssi < -105) {
+                                        options.icon(circleYellow);
+                                    } else if (rssi < -100) {
+                                        options.icon(circleOrange);
+                                    } else {
+                                        options.icon(circleRed);
+                                    }
+                                    options.position(new LatLng(point.getDouble("lat"), point.getDouble("lon")));
+                                    options.anchor((float) 0.5, (float) 0.5);
+                                    markers.add(options);
+                                }
+
+                                String gwaddr = gateway.getString("gateway");
+                                MyApp myApp = (MyApp) getApplication();
+                                myApp.getGwCoverage().put(gwaddr, polygons);
+                                myApp.getGwCoverageMarkers().put(gwaddr, markers);
+                                plotCoverageOneGateway(gwaddr);
+
+
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                            }
+
+                        } else {
+                            // Request not successful
+                        }
+                    }
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+
+    }
+
+    void plotCoverageOneGateway(final String gwaddr) {
+        runOnUiThread(new Runnable() {
+            public void run() {
+                MyApp myApp = (MyApp) getApplication();
+                LatLngBounds bounds = mMap.getProjection().getVisibleRegion().latLngBounds;
+
+                if (mMap.getCameraPosition().zoom > 14) {
+
+//                    for (PolygonOptions options : myApp.getGwCoverage().get(gwaddr)) {
+//                        try {
+//                            if (bounds.contains(new LatLng(options.getPoints().get(0).latitude, options.getPoints().get(0).longitude))
+//                                    || bounds.contains(new LatLng(options.getPoints().get(2).latitude, options.getPoints().get(2).longitude))) {
+//                                mMap.addPolygon(options);
+//                            }
+//                        } catch (Exception e) {
+//                            e.printStackTrace();
+//                        }
+//                    }
+                    for (MarkerOptions options : myApp.getGwCoverageMarkers().get(gwaddr)) {
+                        try {
+                            if (bounds.contains(options.getPosition())) {
+                                mMap.addMarker(options);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }
+        });
     }
 
 
@@ -1330,6 +1491,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             }
 
             Log.d(TAG, "logging packet to server");
+            data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
             data.put("time", time);
             data.put("nodeaddr", devEUI);
             data.put("gwaddr", gatewayAddr);
@@ -1365,10 +1527,9 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
             String dataString = data.toString();
             System.out.println(dataString);
-            String url = "http://ttnmapper.org/api/upload.php";
 
             //post packet
-            postToServer(url, dataString, new Callback() {
+            postToServer(getString(R.string.api_url) + "upload.php", dataString, new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
                     runOnUiThread(new Runnable() {
@@ -1435,6 +1596,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             data.put("lat", lat);
             data.put("lon", lon);
             data.put("alt", alt);
+            data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
 
             String dataString = data.toString();
             System.out.println(dataString);
@@ -1470,7 +1632,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
     @Override
     public void onCameraChange(CameraPosition cameraPosition) { //this is onnly called after an animation is done
-//                Log.d(TAG, "Camera position changed");
+        Log.d(TAG, "Camera position changed");
+        clearMapAddMarkersLines();
 //                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
 //
 //                if (myPrefs.getBoolean("autozoommap", true))

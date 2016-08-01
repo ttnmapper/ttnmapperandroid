@@ -10,15 +10,21 @@ import android.widget.EditText;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 
+import com.google.android.gms.iid.InstanceID;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 public class FirstQuestions extends AppCompatActivity {
 
+    public static final String TAG = "TTNMFirstQuestions";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_first_questions);
+
+        Log.d(TAG, "Instance id=" + InstanceID.getInstance(getApplicationContext()).getId());
 
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
 
