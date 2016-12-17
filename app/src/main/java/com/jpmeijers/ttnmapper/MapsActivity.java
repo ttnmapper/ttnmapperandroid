@@ -791,16 +791,20 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     for (int i = 0; i < gateways.length(); i++) {
                         JSONObject gateway = gateways.getJSONObject(i);
                         if (createFile) {
-                            savePacket(location, gateway, topic); // TODO
+                            savePacket(location, gateway, metadata, topic);
                         }
-                        if (logType.equals("global")) {
-                            uploadPacket(location, gateway, metadata, devId, appId, topic);
-                            uploadGateway(gateway, metadata);
-                        } else if (logType.equals("experiment")) {
-                            uploadPacket(location, gateway, metadata, devId, appId, topic);
-                            //we do not trust experiments to update our gateway table
-                        } else {
-                            //local only
+                        switch (logType) {
+                            case "global":
+                                uploadPacket(location, gateway, metadata, devId, appId, topic);
+                                uploadGateway(gateway, metadata);
+                                break;
+                            case "experiment":
+                                uploadPacket(location, gateway, metadata, devId, appId, topic);
+                                //we do not trust experiments to update our gateway table
+                                break;
+                            default:
+                                //local only
+                                break;
                         }
                     }
 
@@ -918,26 +922,21 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     myApp.getLines().add(options);
                     mMap.addPolyline(options);
 
-                    String gwEui= gateway.getString("gateway_eui");
+                    String gatewayId = gateway.getString(ApiFields.Gateway.ID);
 
-                    if(gatewaysWithMarkers.contains(gwEui))
-                    {
+                    if(gatewaysWithMarkers.contains(gatewayId)) {
                         //already has a marker for this gateway
-                    }
-                    else {
-
+                    } else {
                         MarkerOptions gwoptions = new MarkerOptions();
                         gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
                         gwoptions.position(new LatLng(gwLat, gwLon));
-                        gwoptions.title(gwEui);
+                        gwoptions.title(gatewayId);
                         gwoptions.anchor((float) 0.5, (float) 0.5);
                         myApp.getGatewayMarkers().add(gwoptions);
                         mMap.addMarker(gwoptions);
 
-                        gatewaysWithMarkers.add(gwEui);
-
+                        gatewaysWithMarkers.add(gatewayId);
                     }
-
 
                 }
 
@@ -1018,7 +1017,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
 
     }
-
 
     int getNavigationBarHeight() {
         Resources resources = getApplicationContext().getResources();
@@ -1118,64 +1116,38 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
-    void savePacket(Location location, JSONObject mqttJSONdata, String topic) {
-        String gatewayAddr;
-        String time;
-        double freq;
-        String dataRate;
-        double rssi;
-        double snr;
-
+    void savePacket(Location location, JSONObject gateway, JSONObject metadata, String topic) {
         try {
-            //{"frequency":868.1,
-            // "datarate":"SF7BW125",
-            // "codingrate":"4/5",
-            // "gateway_timestamp":472142790,
-            // "gateway_time":"2016-05-01T19:44:53.877604706Z",
-            // "channel":0,
-            // "server_time":"2016-05-01T19:44:53.756166662Z",
-            // "rssi":-66,
-            // "lsnr":10,
-            // "rfchain":0,
-            // "crc":1,
-            // "modulation":"LORA",
-            // "gateway_eui":"B827EBFFFF5FE05C",
-            // "altitude":0,
-            // "longitude":4.63576,
-            // "latitude":52.37447}
-            gatewayAddr = mqttJSONdata.getString("gateway_eui");
-            time = mqttJSONdata.getString("server_time");
-            freq = mqttJSONdata.getDouble("frequency");
-            dataRate = mqttJSONdata.getString("datarate");
-            rssi = mqttJSONdata.getDouble("rssi");
-            snr = mqttJSONdata.getDouble("lsnr");
+            //metadata fields
+            final String time = metadata.getString(ApiFields.Metadata.TIME);
+            final double frequency = metadata.getDouble(ApiFields.Metadata.FREQUENCY);
+            final String dataRate = metadata.getString(ApiFields.Metadata.DATA_RATE);
+
+            //gateway fields
+            final String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+            final double rssi = gateway.getDouble(ApiFields.Gateway.RSSI);
+            final double snr = gateway.getDouble(ApiFields.Gateway.SNR);
 
             Log.d(TAG, "adding to file");
-    /*
-      02031701
 
-      time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
-     */
-            String data =
-                    time + "," + topic + "," + gatewayAddr + "," +
-                            dataRate + "," + snr + "," + rssi + "," +
-                            freq + "," + location.getLatitude() + "," + location.getLongitude();
+            // time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
+            String data = time + "," + topic + "," + gatewayId + "," +
+                          dataRate + "," + snr + "," + rssi + "," +
+                          frequency + "," + location.getLatitude() + "," + location.getLongitude();
 
             // Find the root of the external storage.
-            // See http://developer.android.com/guide/topics/data/data-  storage.html#filesExternal
-
+            // See http://developer.android.com/guide/topics/data/data-storage.html#filesExternal
             File root = android.os.Environment.getExternalStorageDirectory();
             Log.d(TAG, "\nExternal file system root: " + root);
 
             // See http://stackoverflow.com/questions/3551821/android-write-to-sd-card-folder
-
             File dir = new File(root.getAbsolutePath() + "/ttnmapper_logs");
             dir.mkdirs();
             File file = new File(dir, loggingFilename);
 
             try {
-                FileOutputStream f = new FileOutputStream(file, true);
-                PrintWriter pw = new PrintWriter(f);
+                final FileOutputStream f = new FileOutputStream(file, true);
+                final PrintWriter pw = new PrintWriter(f);
                 pw.println(data);
                 pw.flush();
                 pw.close();
@@ -1202,14 +1174,14 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             final JSONObject data = new JSONObject();
 
             //metadata fields
-            final String time = metadata.getString("time");
-            final double frequency = metadata.getDouble("frequency");
-            final String dataRate = metadata.getString("data_rate");
+            final String time = metadata.getString(ApiFields.Metadata.TIME);
+            final double frequency = metadata.getDouble(ApiFields.Metadata.FREQUENCY);
+            final String dataRate = metadata.getString(ApiFields.Metadata.DATA_RATE);
 
             //gateway fields
-            final String gatewayId = gateway.getString("gtw_id");
-            final double rssi = gateway.getDouble("rssi");
-            final double snr = gateway.getDouble("snr");
+            final String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+            final double rssi = gateway.getDouble(ApiFields.Gateway.RSSI);
+            final double snr = gateway.getDouble(ApiFields.Gateway.SNR);
 
             Log.d(TAG, "logging packet to server");
 
@@ -1304,13 +1276,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     void uploadGateway(JSONObject gateway, JSONObject metadata) {
         try {
             //gateway fields
-            final String gatewayId = gateway.getString("gateway_eui");
-            final double lat = gateway.getDouble("latitude");
-            final double lon = gateway.getDouble("longitude");
-            final double alt = gateway.getDouble("altitude");
+            final String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+            final double lat = gateway.getDouble(ApiFields.Gateway.LATITUDE);
+            final double lon = gateway.getDouble(ApiFields.Gateway.LONGITUDE);
+            final double alt = gateway.getDouble(ApiFields.Gateway.ALTITUDE);
 
             //metadata fields
-            final String time = metadata.getString("time");
+            final String time = metadata.getString(ApiFields.Metadata.TIME);
 
             Log.d(TAG, "logging gateway to server");
 
