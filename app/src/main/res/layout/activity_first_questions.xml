@@ -76,47 +76,6 @@
                 android:layout_height="wrap_content"
                 android:hint="My Unique experiment" />
 
-            <TextView
-                android:id="@+id/textView5"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:paddingTop="15dp"
-                android:text="Choose backend"
-                android:textAppearance="?android:attr/textAppearanceLarge" />
-
-            <TextView
-                android:id="@+id/textView4"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Choose the TTN backend you are using. Depending on how your node is configured you are either using the old backend, or the new one." />
-
-            <RadioGroup
-                android:id="@+id/radioGroupBackend"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content">
-
-                <RadioButton
-                    android:id="@+id/radioButtonProduction"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="New Production backend" />
-
-                <RadioButton
-                    android:id="@+id/radioButtonStaging"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    android:text="Old Staging backend" />
-
-                <RadioButton
-                    android:id="@+id/radioButtonCroft"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="false"
-                    android:text="Old Croft backend" />
-
-            </RadioGroup>
         </LinearLayout>
     </ScrollView>
 

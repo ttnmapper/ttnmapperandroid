@@ -16,19 +16,8 @@ public class ExpertQuestions extends AppCompatActivity {
 
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
 
-        final String backend = myPrefs.getString("backend", "staging");
         final EditText topic = (EditText) findViewById(R.id.editTextTopic);
-        switch (backend) {
-            case "croft":
-                topic.setText(myPrefs.getString("mqtttopiccroft", "nodes/" + myPrefs.getString("nodeaddress", "03FFEEBB") + "/packets"));
-                break;
-            case "staging":
-                topic.setText(myPrefs.getString("mqtttopicstaging", "+/devices/#"));
-                break;
-            case "production":
-                topic.setText(myPrefs.getString("mqtttopicproduction", "+/devices/#"));
-                break;
-        }
+        topic.setText(myPrefs.getString("mqtttopicproduction", "+/devices/#"));
 
 //        CheckBox lognegative = (CheckBox) findViewById(R.id.checkBoxNegative);
 //        lognegative.setChecked(myPrefs.getBoolean("lognegative", false));
@@ -50,19 +39,8 @@ public class ExpertQuestions extends AppCompatActivity {
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
         SharedPreferences.Editor prefsEditor = myPrefs.edit();
 
-        final String backend = myPrefs.getString("backend", "staging");
         final EditText topic = (EditText) findViewById(R.id.editTextTopic);
-        switch (backend) {
-            case "croft":
-                prefsEditor.putString("mqtttopiccroft", topic.getText().toString());
-                break;
-            case "staging":
-                prefsEditor.putString("mqtttopicstaging", topic.getText().toString());
-                break;
-            case "production":
-                prefsEditor.putString("mqtttopicproduction", topic.getText().toString());
-                break;
-        }
+        prefsEditor.putString("mqtttopicproduction", topic.getText().toString());
 
 //        CheckBox lognegative = (CheckBox) findViewById(R.id.checkBoxNegative);
 //        prefsEditor.putBoolean("lognegative", lognegative.isChecked());
