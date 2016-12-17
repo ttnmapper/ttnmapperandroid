@@ -2,6 +2,8 @@ package com.jpmeijers.ttnmapper;
 
 import android.app.Application;
 
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.PolygonOptions;
@@ -28,6 +30,7 @@ public class MyApp extends Application {
     Map<String, ArrayList<PolygonOptions>> gwCoverage = new HashMap<>();
     Map<String, ArrayList<MarkerOptions>> gwCoverageMarkers = new HashMap<>();
     LatLngBounds lastViewBounds = null;
+    CameraPosition lastCameraLocation = null;
 
     private MqttAndroidClient myMQTTclient;
     private OkHttpClient client;
@@ -96,5 +99,15 @@ public class MyApp extends Application {
 
     public void setLastViewBounds(LatLngBounds bounds) {
         lastViewBounds = bounds;
+    }
+
+    public void setLastCameraLocation(CameraPosition cameraLocation)
+    {
+        this.lastCameraLocation = cameraLocation;
+    }
+
+    public CameraPosition getLastCameraLocation()
+    {
+        return lastCameraLocation;
     }
 }

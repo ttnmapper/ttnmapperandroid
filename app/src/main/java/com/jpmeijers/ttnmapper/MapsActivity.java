@@ -104,6 +104,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     Bitmap bmOrange;
     Bitmap bmRed;
 
+    ArrayList<String> gatewaysWithMarkers = new ArrayList<>();
 
     private int mqtt_retry_count = 0;
     private GoogleMap mMap;
@@ -443,12 +444,15 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             mMap.setMyLocationEnabled(true);
         }
 
-        // Show the current location in Google Map
-        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(52.369, 4.895), (float) 13));
-
-        // Zoom in the Google Map
-        //mMap.moveCamera(CameraUpdateFactory.newLatLng(getLatestLatLng()));
-        //mMap.animateCamera(CameraUpdateFactory.zoomTo((float)13));
+        MyApp myApp = (MyApp) getApplication();
+        if(myApp.getLastCameraLocation()!=null)
+        {
+           mMap.moveCamera(CameraUpdateFactory.newCameraPosition(myApp.getLastCameraLocation()));
+        }
+        else {
+            // Show the current location in Google Map
+            mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(52.369, 4.895), (float) 13));
+        }
 
         mMap.setOnCameraChangeListener(this);
 
@@ -921,13 +925,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                         options.color(0x7f000000);
                     } else if (rssi < -120) {
                         options.color(0x7f0000ff);
-                    } else if (rssi < -110) {
+                    } else if (rssi < -115) {
                         options.color(0x7f00ffff);
-                    } else if (rssi < -100) {
+                    } else if (rssi < -110) {
                         options.color(0x7f00ff00);
-                    } else if (rssi < -90) {
+                    } else if (rssi < -105) {
                         options.color(0x7fffff00);
-                    } else if (rssi < -80) {
+                    } else if (rssi < -100) {
                         options.color(0x7fff7f00);
                     } else {
                         options.color(0x7fff0000);
@@ -935,15 +939,28 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     options.width(2);
                     MyApp myApp = (MyApp) getApplication();
                     myApp.getLines().add(options);
+                    mMap.addPolyline(options);
 
-                    MarkerOptions gwoptions = new MarkerOptions();
-                    gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
-                    gwoptions.position(new LatLng(gwLat, gwLon));
-                    gwoptions.title(gateway.getString("gateway_eui"));
-                    gwoptions.anchor((float) 0.5, (float) 0.5);
+                    String gwEui= gateway.getString("gateway_eui");
 
+                    if(gatewaysWithMarkers.contains(gwEui))
+                    {
+                        //already has a marker for this gateway
+                    }
+                    else {
 
-                    myApp.getGatewayMarkers().add(gwoptions);
+                        MarkerOptions gwoptions = new MarkerOptions();
+                        gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
+                        gwoptions.position(new LatLng(gwLat, gwLon));
+                        gwoptions.title(gwEui);
+                        gwoptions.anchor((float) 0.5, (float) 0.5);
+                        myApp.getGatewayMarkers().add(gwoptions);
+                        mMap.addMarker(gwoptions);
+
+                        gatewaysWithMarkers.add(gwEui);
+
+                    }
+
 
                 }
 
@@ -983,7 +1000,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             MyApp myApp = (MyApp) getApplication();
             myApp.getMarkers().add(options);
 
-            clearMapAddMarkersLines();
+//            clearMapAddMarkersLines();
+            mMap.addMarker(options);
         }
     }
 
@@ -1010,6 +1028,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             if (myPrefs.getBoolean("lordrive", true)) {
                 for (MarkerOptions options : myApp.getGatewayMarkers()) {
                     mMap.addMarker(options);
+                    gatewaysWithMarkers.add(options.getTitle());
                 }
                 for (PolylineOptions options : myApp.getLines()) {
                     mMap.addPolyline(options);
@@ -1021,249 +1040,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             }
         }
 
-    }
-
-
-    void addCoverageImage() {
-        LatLngBounds bounds = mMap.getProjection().getVisibleRegion().latLngBounds;
-        final int lat = (int) bounds.southwest.latitude;
-        final int lon = (int) bounds.southwest.longitude;
-        AsyncTask.execute(new Runnable() {
-            @Override
-            public void run() {
-                URL url = null;
-                try {
-                    url = new URL("http://ttnmapper.org/tiles/" + lat + "_" + lon + "_0.0005.png");
-                    BitmapFactory.Options o2 = new BitmapFactory.Options();
-                    o2.inDither = false;
-                    o2.inSampleSize = 4;
-                    Bitmap image = BitmapFactory.decodeStream(url.openConnection().getInputStream());
-                    image = Bitmap.createScaledBitmap(image, image.getWidth() * 20, image.getHeight() * 20, false);
-                    BitmapDescriptor imageDescriptor = BitmapDescriptorFactory.fromBitmap(image);
-
-
-                    final GroundOverlayOptions options = new GroundOverlayOptions();
-                    options.image(imageDescriptor);
-                    options.positionFromBounds(new LatLngBounds(new LatLng(lat, lon), new LatLng(lat + 1, lon + 1)));
-
-
-                    runOnUiThread(new Runnable() {
-                        public void run() {
-                            GroundOverlay overlay = mMap.addGroundOverlay(options);
-
-                        }
-                    });
-
-                } catch (MalformedURLException e) {
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-
-    }
-
-    void downloadCoverage() {
-        JSONObject data = new JSONObject();
-        LatLngBounds bounds = mMap.getProjection().getVisibleRegion().latLngBounds;
-        //build {"_sw":{"lng":6.715497156312011,"lat":52.159068901046254},"_ne":{"lng":7.0063341279171425,"lat":52.296423335685716}, "iid": 12345}
-        JSONObject sw = new JSONObject();
-        JSONObject ne = new JSONObject();
-        String dataString = "";
-        try {
-            sw.put("lng", bounds.southwest.longitude);
-            sw.put("lat", bounds.southwest.latitude);
-            ne.put("lng", bounds.northeast.longitude);
-            ne.put("lat", bounds.northeast.latitude);
-            data.put("_sw", sw);
-            data.put("_ne", ne);
-            data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
-            dataString = data.toString();
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-
-        Log.d(TAG, "HTTP post: " + dataString);
-        try {
-            postToServer(getString(R.string.api_url) + "gwbbox.php", dataString, new Callback() {
-                @Override
-                public void onFailure(Call call, IOException e) {
-                    e.printStackTrace();
-                }
-
-                @Override
-                public void onResponse(Call call, Response response) throws IOException {
-                    if (response.isSuccessful()) {
-                        final String returnedString = response.body().string();
-                        System.out.println("HTTP response: " + returnedString);
-                        // Do what you want to do with the response.
-                        try {
-                            JSONObject receivedData = new JSONObject(returnedString);
-                            JSONArray gateways = receivedData.getJSONArray("gateways");
-                            for (int i = 0; i < gateways.length(); i++) {
-                                downloadOneGateway(gateways.getString(i));
-                            }
-                        } catch (JSONException e) {
-                            e.printStackTrace();
-                        }
-
-                    } else {
-                        // Request not successful
-                    }
-                }
-            });
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    void downloadOneGateway(final String gwaddr) {
-        MyApp myApp = (MyApp) getApplication();
-        final ArrayList<PolygonOptions> polygons = new ArrayList<>();
-        final ArrayList<MarkerOptions> markers = new ArrayList<>();
-
-        if (myApp.getGwCoverage().containsKey(gwaddr)) {
-            plotCoverageOneGateway(gwaddr);
-        } else {
-            JSONObject data = new JSONObject();
-
-            String dataString = "";
-            try {
-                data.put("resolution", "0.0005");
-                data.put("gateway", gwaddr);
-                data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
-                dataString = data.toString();
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-
-            Log.d(TAG, "HTTP post: " + dataString);
-            try {
-                postToServer(getString(R.string.api_url) + "getPointsForGateway.php", dataString, new Callback() {
-                    @Override
-                    public void onFailure(Call call, IOException e) {
-                        e.printStackTrace();
-                    }
-
-                    @Override
-                    public void onResponse(Call call, Response response) throws IOException {
-                        if (response.isSuccessful()) {
-                            final String returnedString = response.body().string();
-                            System.out.println("HTTP response: " + returnedString);
-                            // Do what you want to do with the response.
-
-                            try {
-                                JSONObject gateway = new JSONObject(returnedString);
-                                JSONArray points = gateway.getJSONArray("points");
-                                for (int i = 0; i < points.length(); i++) {
-                                    JSONObject point = points.getJSONObject(i);
-
-//                                    PolygonOptions square = new PolygonOptions();
-//
-//                                    square.add(new LatLng(point.getDouble("lat") - 0.00025, point.getDouble("lon") - 0.00025));
-//                                    square.add(new LatLng(point.getDouble("lat") - 0.00025, point.getDouble("lon") + 0.00025));
-//                                    square.add(new LatLng(point.getDouble("lat") + 0.00025, point.getDouble("lon") + 0.00025));
-//                                    square.add(new LatLng(point.getDouble("lat") + 0.00025, point.getDouble("lon") - 0.00025));
-//
-                                    double rssi = point.getDouble("rssiavg");
-//                                    if (rssi == 0) {
-//                                        square.fillColor(0x7f000000);
-//                                    } else if (rssi < -120) {
-//                                        square.fillColor(0x7f0000ff);
-//                                    } else if (rssi < -110) {
-//                                        square.fillColor(0x7f00ffff);
-//                                    } else if (rssi < -100) {
-//                                        square.fillColor(0x7f00ff00);
-//                                    } else if (rssi < -90) {
-//                                        square.fillColor(0x7fffff00);
-//                                    } else if (rssi < -80) {
-//                                        square.fillColor(0x7fff7f00);
-//                                    } else {
-//                                        square.fillColor(0x7fff0000);
-//                                    }
-//
-////                                    square.zIndex(-100);
-//                                    square.strokeWidth(0);
-//                                    polygons.add(square);
-
-                                    MarkerOptions options = new MarkerOptions();
-                                    createMarkerBitmaps();
-
-                                    if (rssi == 0) {
-                                        options.icon(circleBlack);
-                                    } else if (rssi < -120) {
-                                        options.icon(circleBlue);
-                                    } else if (rssi < -115) {
-                                        options.icon(circleCyan);
-                                    } else if (rssi < -110) {
-                                        options.icon(circleGreen);
-                                    } else if (rssi < -105) {
-                                        options.icon(circleYellow);
-                                    } else if (rssi < -100) {
-                                        options.icon(circleOrange);
-                                    } else {
-                                        options.icon(circleRed);
-                                    }
-                                    options.position(new LatLng(point.getDouble("lat"), point.getDouble("lon")));
-                                    options.anchor((float) 0.5, (float) 0.5);
-                                    markers.add(options);
-                                }
-
-                                String gwaddr = gateway.getString("gateway");
-                                MyApp myApp = (MyApp) getApplication();
-                                myApp.getGwCoverage().put(gwaddr, polygons);
-                                myApp.getGwCoverageMarkers().put(gwaddr, markers);
-                                plotCoverageOneGateway(gwaddr);
-
-
-                            } catch (JSONException e) {
-                                e.printStackTrace();
-                            }
-
-                        } else {
-                            // Request not successful
-                        }
-                    }
-                });
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-
-    }
-
-    void plotCoverageOneGateway(final String gwaddr) {
-        runOnUiThread(new Runnable() {
-            public void run() {
-                MyApp myApp = (MyApp) getApplication();
-                LatLngBounds bounds = mMap.getProjection().getVisibleRegion().latLngBounds;
-
-                if (mMap.getCameraPosition().zoom > 14) {
-
-//                    for (PolygonOptions options : myApp.getGwCoverage().get(gwaddr)) {
-//                        try {
-//                            if (bounds.contains(new LatLng(options.getPoints().get(0).latitude, options.getPoints().get(0).longitude))
-//                                    || bounds.contains(new LatLng(options.getPoints().get(2).latitude, options.getPoints().get(2).longitude))) {
-//                                mMap.addPolygon(options);
-//                            }
-//                        } catch (Exception e) {
-//                            e.printStackTrace();
-//                        }
-//                    }
-                    for (MarkerOptions options : myApp.getGwCoverageMarkers().get(gwaddr)) {
-                        try {
-                            if (bounds.contains(options.getPosition())) {
-                                mMap.addMarker(options);
-                            }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
-            }
-        });
     }
 
 
@@ -1633,7 +1409,11 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     @Override
     public void onCameraChange(CameraPosition cameraPosition) { //this is onnly called after an animation is done
         Log.d(TAG, "Camera position changed");
-        clearMapAddMarkersLines();
+
+
+        MyApp myApp = (MyApp) getApplication();
+        myApp.setLastCameraLocation(cameraPosition);
+//        clearMapAddMarkersLines();
 //                SharedPreferences myPrefs = getSharedPreferences("myPrefs", MODE_PRIVATE);
 //
 //                if (myPrefs.getBoolean("autozoommap", true))

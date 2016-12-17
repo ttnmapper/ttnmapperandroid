@@ -12,8 +12,8 @@ android {
         applicationId "com.jpmeijers.ttnmapper"
         minSdkVersion 16
         targetSdkVersion 23
-        versionCode 15
-        versionName "2016.07.10"
+        versionCode 16
+        versionName "2016.08.01"
         multiDexEnabled = true
     }
     buildTypes {
@@ -29,7 +29,8 @@ android {
 repositories {
     maven {
         url "https://repo.eclipse.org/content/repositories/paho-snapshots/"
-    }
+        }
+    maven { url "https://repo.eclipse.org/content/repositories/paho-releases/" }
 }
 
 dependencies {
@@ -38,18 +39,13 @@ dependencies {
     compile 'com.android.support:design:23.4.0'
     compile 'com.android.support:appcompat-v7:23.4.0'
     compile 'com.android.support:multidex:1.0.1'
-    //compile 'com.google.android.gms:play-services:9.0.2'
-    /*compile 'io.ticofab:ttn-android-sdk:1.1.1'*/
     compile 'com.squareup.okhttp3:okhttp:3.0.1'
-    //compile 'com.google.android.gms:play-services-ads:9.0.2'
-    //compile 'com.google.android.gms:play-services-auth:9.0.2'
     compile 'com.google.android.gms:play-services-gcm:9.2.1'
     compile 'com.google.android.gms:play-services-maps:9.2.1'
-    //    compile('org.eclipse.paho:org.eclipse.paho.android.service:1.0.2') {
-    //        exclude module: 'support-v4'
-    //    }
-    compile 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.0.3-SNAPSHOT'
-    compile('org.eclipse.paho:org.eclipse.paho.android.service:1.0.3-SNAPSHOT') {
-        exclude module: 'support-v4'
-    }
+//    compile 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.0.3-SNAPSHOT'
+//    compile('org.eclipse.paho:org.eclipse.paho.android.service:1.0.3-SNAPSHOT') {
+//        exclude module: 'support-v4'
+//    }
+    compile 'org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.1.0'
+    compile 'org.eclipse.paho:org.eclipse.paho.android.service:1.1.0'
 }
