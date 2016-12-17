@@ -16,12 +16,18 @@ public class ExpertQuestions extends AppCompatActivity {
 
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
 
-        if (myPrefs.getString("backend", "staging").equals("croft")) {
-            EditText topic = (EditText) findViewById(R.id.editTextTopic);
-            topic.setText(myPrefs.getString("mqtttopiccroft", "nodes/" + myPrefs.getString("nodeaddress", "03FFEEBB") + "/packets"));
-        } else {
-            EditText topic = (EditText) findViewById(R.id.editTextTopic);
-            topic.setText(myPrefs.getString("mqtttopicstaging", "+/devices/#"));
+        final String backend = myPrefs.getString("backend", "staging");
+        final EditText topic = (EditText) findViewById(R.id.editTextTopic);
+        switch (backend) {
+            case "croft":
+                topic.setText(myPrefs.getString("mqtttopiccroft", "nodes/" + myPrefs.getString("nodeaddress", "03FFEEBB") + "/packets"));
+                break;
+            case "staging":
+                topic.setText(myPrefs.getString("mqtttopicstaging", "+/devices/#"));
+                break;
+            case "production":
+                topic.setText(myPrefs.getString("mqtttopicproduction", "+/devices/#"));
+                break;
         }
 
 //        CheckBox lognegative = (CheckBox) findViewById(R.id.checkBoxNegative);
@@ -35,7 +41,6 @@ public class ExpertQuestions extends AppCompatActivity {
 //        EditText lossesText = (EditText) findViewById(R.id.editTextLosses);
 //        lossesText.setText(losses + "");
 
-
         if (!myPrefs.getBoolean("expertmode", false)) {
             startLogging();
         }
@@ -45,12 +50,18 @@ public class ExpertQuestions extends AppCompatActivity {
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
         SharedPreferences.Editor prefsEditor = myPrefs.edit();
 
-        if (myPrefs.getString("backend", "staging").equals("croft")) {
-            EditText topic = (EditText) findViewById(R.id.editTextTopic);
-            prefsEditor.putString("mqtttopiccroft", topic.getText().toString());
-        } else {
-            EditText topic = (EditText) findViewById(R.id.editTextTopic);
-            prefsEditor.putString("mqtttopicstaging", topic.getText().toString());
+        final String backend = myPrefs.getString("backend", "staging");
+        final EditText topic = (EditText) findViewById(R.id.editTextTopic);
+        switch (backend) {
+            case "croft":
+                prefsEditor.putString("mqtttopiccroft", topic.getText().toString());
+                break;
+            case "staging":
+                prefsEditor.putString("mqtttopicstaging", topic.getText().toString());
+                break;
+            case "production":
+                prefsEditor.putString("mqtttopicproduction", topic.getText().toString());
+                break;
         }
 
 //        CheckBox lognegative = (CheckBox) findViewById(R.id.checkBoxNegative);

@@ -56,14 +56,26 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:autoLink="web"
-                android:text="Copy your login details from the TTN dashboard\nhttp://staging.thethingsnetwork.org"
+                android:text="Copy your login details from the TTN dashboard\n(console.thethingsnetwork.org)"
                 android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/textViewMQTTregion"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="App Handler Region (e.g. 'eu')" />
+
+            <EditText
+                android:id="@+id/editTextMQTTregion"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_below="@+id/textViewMQTTregion" />
 
             <TextView
                 android:id="@+id/textViewMQTTuser"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="App EUI" />
+                android:text="App ID" />
 
             <EditText
                 android:id="@+id/editTextMQTTuser"

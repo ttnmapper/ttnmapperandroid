@@ -96,18 +96,26 @@
                 android:layout_height="wrap_content">
 
                 <RadioButton
-                    android:id="@+id/radioButtonCroft"
+                    android:id="@+id/radioButtonProduction"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:checked="false"
-                    android:text="old Croft backend" />
+                    android:checked="true"
+                    android:text="New Production backend" />
 
                 <RadioButton
                     android:id="@+id/radioButtonStaging"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="new Staging backend" />
+                    android:text="Old Staging backend" />
+
+                <RadioButton
+                    android:id="@+id/radioButtonCroft"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false"
+                    android:text="Old Croft backend" />
+
             </RadioGroup>
         </LinearLayout>
     </ScrollView>

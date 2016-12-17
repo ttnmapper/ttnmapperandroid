@@ -49,6 +49,9 @@ public class FirstQuestions extends AppCompatActivity {
         } else if (value.equalsIgnoreCase("staging")) {
             RadioButton button = (RadioButton) findViewById(R.id.radioButtonStaging);
             button.setChecked(true);
+        } else if (value.equalsIgnoreCase("production")) {
+            RadioButton button = (RadioButton) findViewById(R.id.radioButtonProduction);
+            button.setChecked(true);
         }
 
         //set experiment default name
@@ -101,6 +104,10 @@ public class FirstQuestions extends AppCompatActivity {
         button = (RadioButton) findViewById(R.id.radioButtonStaging);
         if (button.isChecked()) {
             prefsEditor.putString("backend", "staging");
+        }
+        button = (RadioButton) findViewById(R.id.radioButtonProduction);
+        if (button.isChecked()) {
+            prefsEditor.putString("backend", "production");
         }
 
         prefsEditor.apply();

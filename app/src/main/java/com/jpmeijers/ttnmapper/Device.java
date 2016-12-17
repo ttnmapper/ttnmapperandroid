@@ -70,7 +70,7 @@ public class Device extends AppCompatActivity
     String server = editText.getText().toString();
 
     editText = (EditText) findViewById(R.id.editTextUser);
-    String user = editText.getText().toString().toUpperCase();
+    String user = editText.getText().toString();
 
     editText = (EditText) findViewById(R.id.editTextPassword);
     String password = editText.getText().toString();

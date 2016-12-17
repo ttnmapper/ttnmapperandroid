@@ -112,6 +112,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     private boolean createFile;
     private String logType;
     private String loggingFilename;
+    private String mqttRegion;
     private String mqttServer;
     private String mqttUser;
     private String mqttPassword = "";
@@ -348,16 +349,27 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
         backend = myPrefs.getString("backend", "staging");
-        if (backend.equals("croft")) {
-            mqttServer = "tcp://croft.thethings.girovito.nl:1883";
-            nodeaddr = myPrefs.getString("nodeaddress", "03FFEEBB");
-            mqttTopic = myPrefs.getString("mqtttopiccroft", "nodes/" + nodeaddr + "/packets");
-        } else {
-            mqttServer = "tcp://staging.thethingsnetwork.org:1883";
-            mqttUser = myPrefs.getString("mqttusername", "");
-            mqttPassword = myPrefs.getString("mqttpassword", "");
-            mqttTopic = myPrefs.getString("mqtttopicstaging", "+/devices/#");
+        switch (backend) {
+            case "croft":
+                mqttServer = "tcp://croft.thethings.girovito.nl:1883";
+                nodeaddr = myPrefs.getString("nodeaddress", "03FFEEBB");
+                mqttTopic = myPrefs.getString("mqtttopiccroft", "nodes/" + nodeaddr + "/packets");
+                break;
+            case "staging":
+                mqttServer = "tcp://staging.thethingsnetwork.org:1883";
+                mqttUser = myPrefs.getString("mqttusername", "");
+                mqttPassword = myPrefs.getString("mqttpassword", "");
+                mqttTopic = myPrefs.getString("mqtttopicstaging", "+/devices/#");
+                break;
+            case "production":
+                mqttRegion = myPrefs.getString("mqttregion", "eu");
+                mqttServer = "tcp://" + mqttRegion + ".thethings.network:1883";
+                mqttUser = myPrefs.getString("mqttusername", "");
+                mqttPassword = myPrefs.getString("mqttpassword", "");
+                mqttTopic = myPrefs.getString("mqtttopicproduction", "+/devices/#");
+                break;
         }
+
         //nodeAddress = intent.getStringExtra("address");
         createFile = myPrefs.getBoolean("savefile", true);
         logType = myPrefs.getString("logging_type", "global");
@@ -537,7 +549,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             connOpt.setCleanSession(true);
             connOpt.setKeepAliveInterval(30);
             if (!mqttPassword.isEmpty() && !backend.equals("croft")) {
-                Log.d(TAG, "mqtt adding UN/PW " + mqttUser + " " + mqttPassword);
+                Log.d(TAG, "mqtt adding UN/PW [" + mqttUser + "] [" + mqttPassword + "]");
                 connOpt.setUserName(mqttUser);
                 connOpt.setPassword(mqttPassword.toCharArray());
             }
@@ -574,7 +586,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                             if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
                                 runOnUiThread(new Runnable() {
                                     public void run() {
-                                        Toast.makeText(getApplicationContext(), "MQTT error: Incorrect AppEUI or Access Key.", Toast.LENGTH_LONG).show();
+                                        Toast.makeText(getApplicationContext(), "MQTT error: Incorrect credentials.", Toast.LENGTH_LONG).show();
                                     }
                                 });
                             }
@@ -643,7 +655,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             e.printStackTrace();
         }
     }
-
 
     void mqtt_unsubscribe() {
         Log.d(TAG, "mqtt unsubscribe");
@@ -792,7 +803,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                         e.printStackTrace();
                     }
 
-                } else { //Staging server MQTT format
+                } else if (backend.equals("staging")) { // Staging server MQTT format
                     String[] apart = topic.split("/");
 
                     //filter incorrect topics
@@ -827,6 +838,54 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                                 uploadGateway(gateway);
                             } else if (logType.equals("experiment")) {
                                 uploadPacket(location, gateway, devEUI, appEUI, topic);
+                                //we do not trust experiments to update our gateway table
+                            } else {
+                                //local only
+                            }
+                        }
+
+                    } catch (JSONException e) {
+                        e.printStackTrace();
+                    }
+                } else { // Production
+                    String[] apart = topic.split("/");
+
+                    // Filter incorrect topics
+                    if (apart.length != 4) {
+                        return;
+                    }
+
+                    // Filter non-upstream messages
+                    if (!apart[3].equals("up")) {
+                        return;
+                    }
+
+                    final String devId = apart[2];
+                    final String appId = apart[0];
+
+                    //correct type of packet
+                    System.out.println(topic);
+                    System.out.println(jsonData);
+
+                    try {
+                        final JSONObject received_data = new JSONObject(jsonData);
+                        final JSONObject metadata = received_data.getJSONObject("metadata");
+                        final JSONArray gateways = metadata.getJSONArray("gateways");
+                        final double maxRssi = addLine(location, gateways);
+                        addMarker(location, maxRssi);
+
+                        for (int i = 0; i < gateways.length(); i++) {
+                            JSONObject gateway = gateways.getJSONObject(i);
+                            if (createFile) {
+                                savePacket(location, gateway, topic);
+                            }
+                            if (logType.equals("global")) {
+                                // TODO: Fix upload format
+                                uploadPacket(location, gateway, devId, appId, topic);
+                                uploadGateway(gateway);
+                            } else if (logType.equals("experiment")) {
+                                // TODO: Fix upload format
+                                uploadPacket(location, gateway, devId, appId, topic);
                                 //we do not trust experiments to update our gateway table
                             } else {
                                 //local only
@@ -906,13 +965,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
-    double addLine(Location location, JSONArray metadata) {
+    double addLine(Location location, JSONArray gateways) {
         double rssi = 0;
-        for (int i = 0; i < metadata.length(); i++) {
+        for (int i = 0; i < gateways.length(); i++) {
             try {
-                JSONObject gateway = metadata.getJSONObject(i);
+                JSONObject gateway = gateways.getJSONObject(i);
                 if (rssi == 0 || rssi < gateway.getDouble("rssi")) {
-                    rssi = metadata.getJSONObject(i).getDouble("rssi");
+                    rssi = gateways.getJSONObject(i).getDouble("rssi");
                 }
 
                 double gwLat = gateway.getDouble("latitude");
