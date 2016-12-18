@@ -112,12 +112,11 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
     private boolean createFile;
     private String logType;
     private String loggingFilename;
+    private String mqttRegion;
     private String mqttServer;
     private String mqttUser;
     private String mqttPassword = "";
     private String mqttTopic;
-    private String backend;
-    private String nodeaddr; //only for croft backend
     private String experimentName;
     private LocationManager mLocationManager;
     private Location currentLocation;
@@ -347,17 +346,13 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         //mapFragment.setRetainInstance(true);
 
         SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
-        backend = myPrefs.getString("backend", "staging");
-        if (backend.equals("croft")) {
-            mqttServer = "tcp://croft.thethings.girovito.nl:1883";
-            nodeaddr = myPrefs.getString("nodeaddress", "03FFEEBB");
-            mqttTopic = myPrefs.getString("mqtttopiccroft", "nodes/" + nodeaddr + "/packets");
-        } else {
-            mqttServer = "tcp://staging.thethingsnetwork.org:1883";
-            mqttUser = myPrefs.getString("mqttusername", "");
-            mqttPassword = myPrefs.getString("mqttpassword", "");
-            mqttTopic = myPrefs.getString("mqtttopicstaging", "+/devices/#");
-        }
+
+        mqttRegion = myPrefs.getString("mqttregion", "eu");
+        mqttServer = "tcp://" + mqttRegion + ".thethings.network:1883";
+        mqttUser = myPrefs.getString("mqttusername", "");
+        mqttPassword = myPrefs.getString("mqttpassword", "");
+        mqttTopic = myPrefs.getString("mqtttopicproduction", "+/devices/#");
+
         //nodeAddress = intent.getStringExtra("address");
         createFile = myPrefs.getBoolean("savefile", true);
         logType = myPrefs.getString("logging_type", "global");
@@ -536,8 +531,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             connOpt = new MqttConnectOptions();
             connOpt.setCleanSession(true);
             connOpt.setKeepAliveInterval(30);
-            if (!mqttPassword.isEmpty() && !backend.equals("croft")) {
-                Log.d(TAG, "mqtt adding UN/PW " + mqttUser + " " + mqttPassword);
+            if (!mqttPassword.isEmpty()) {
+                Log.d(TAG, "mqtt adding UN/PW [" + mqttUser + "] [" + mqttPassword + "]");
                 connOpt.setUserName(mqttUser);
                 connOpt.setPassword(mqttPassword.toCharArray());
             }
@@ -574,7 +569,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                             if (mqtt_retry_count > 1 && mqtt_retry_count < 5) {
                                 runOnUiThread(new Runnable() {
                                     public void run() {
-                                        Toast.makeText(getApplicationContext(), "MQTT error: Incorrect AppEUI or Access Key.", Toast.LENGTH_LONG).show();
+                                        Toast.makeText(getApplicationContext(), "MQTT error: Incorrect credentials.", Toast.LENGTH_LONG).show();
                                     }
                                 });
                             }
@@ -643,7 +638,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             e.printStackTrace();
         }
     }
-
 
     void mqtt_unsubscribe() {
         Log.d(TAG, "mqtt unsubscribe");
@@ -771,71 +765,51 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     return;
                 }
 
-                if (backend.equals("croft")) //Old croft MQTT format
-                {
-                    try {
-                        JSONObject received_data = new JSONObject(jsonData);
+                String[] parts = topic.split("/");
 
-                        addMarker(location, received_data.getDouble("rssi"));
+                // Filter incorrect topics
+                if (parts.length != 4) {
+                    return;
+                }
+
+                // Filter non-upstream messages
+                if (!parts[3].equals("up")) {
+                    return;
+                }
+
+                // Extract app and device IDs
+                final String appId = parts[0];
+                final String devId = parts[2];
+
+                try {
+                    final JSONObject data = new JSONObject(jsonData);
+                    final JSONObject metadata = data.getJSONObject("metadata");
+                    final JSONArray gateways = metadata.getJSONArray("gateways");
+                    final double maxRssi = addLine(location, gateways);
+                    addMarker(location, maxRssi);
+
+                    for (int i = 0; i < gateways.length(); i++) {
+                        JSONObject gateway = gateways.getJSONObject(i);
                         if (createFile) {
-                            savePacket(location, received_data, nodeaddr);
+                            savePacket(location, gateway, metadata, topic);
                         }
-                        if (logType.equals("global")) {
-                            uploadPacket(location, received_data, nodeaddr, null, topic);
-                        } else if (logType.equals("experiment")) {
-                            uploadPacket(location, received_data, nodeaddr, null, topic);
-                        } else {
-                            //local only
-                        }
-
-                    } catch (JSONException e) {
-                        e.printStackTrace();
-                    }
-
-                } else { //Staging server MQTT format
-                    String[] apart = topic.split("/");
-
-                    //filter incorrect topics
-                    if (apart.length != 4) {
-                        return;
-                    }
-
-                    if (!apart[3].equals("up")) {
-                        return;
-                    }
-
-                    String devEUI = apart[2];
-                    String appEUI = apart[0];
-
-                    //correct type of packet
-                    System.out.println(topic);
-                    System.out.println(jsonData);
-
-                    try {
-                        JSONObject received_data = new JSONObject(jsonData);
-                        JSONArray gateways = received_data.getJSONArray("metadata");
-                        double maxRssi = addLine(location, gateways);
-                        addMarker(location, maxRssi);
-
-                        for (int i = 0; i < gateways.length(); i++) {
-                            JSONObject gateway = gateways.getJSONObject(i);
-                            if (createFile) {
-                                savePacket(location, gateway, topic);
-                            }
-                            if (logType.equals("global")) {
-                                uploadPacket(location, gateway, devEUI, appEUI, topic);
-                                uploadGateway(gateway);
-                            } else if (logType.equals("experiment")) {
-                                uploadPacket(location, gateway, devEUI, appEUI, topic);
+                        switch (logType) {
+                            case "global":
+                                uploadPacket(location, gateway, metadata, devId, appId, topic);
+                                uploadGateway(gateway, metadata);
+                                break;
+                            case "experiment":
+                                uploadPacket(location, gateway, metadata, devId, appId, topic);
                                 //we do not trust experiments to update our gateway table
-                            } else {
+                                break;
+                            default:
                                 //local only
-                            }
+                                break;
                         }
-
-                    } catch (JSONException e) {
-                        e.printStackTrace();
                     }
+
+                } catch (JSONException e) {
+                    e.printStackTrace();
                 }
             }
         } //end of AddMarker inner class
@@ -906,62 +880,68 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
-    double addLine(Location location, JSONArray metadata) {
+    /**
+     * Add a line to each gateway that received the packet.
+     *
+     * @param location The node location.
+     * @param gateways List of gateways that received the packet.
+     * @return The max RSSI value encountered.
+     */
+    double addLine(Location location, JSONArray gateways) {
         double rssi = 0;
-        for (int i = 0; i < metadata.length(); i++) {
+        for (int i = 0; i < gateways.length(); i++) {
             try {
-                JSONObject gateway = metadata.getJSONObject(i);
+                JSONObject gateway = gateways.getJSONObject(i);
                 if (rssi == 0 || rssi < gateway.getDouble("rssi")) {
-                    rssi = metadata.getJSONObject(i).getDouble("rssi");
+                    rssi = gateways.getJSONObject(i).getDouble("rssi");
                 }
 
-                double gwLat = gateway.getDouble("latitude");
-                double gwLon = gateway.getDouble("longitude");
-                if (gwLat != 0 && gwLon != 0) {
-                    PolylineOptions options = new PolylineOptions();
-                    options.add(new LatLng(location.getLatitude(), location.getLongitude()));
-                    options.add(new LatLng(gwLat, gwLon));
-                    if (rssi == 0) {
-                        options.color(0x7f000000);
-                    } else if (rssi < -120) {
-                        options.color(0x7f0000ff);
-                    } else if (rssi < -115) {
-                        options.color(0x7f00ffff);
-                    } else if (rssi < -110) {
-                        options.color(0x7f00ff00);
-                    } else if (rssi < -105) {
-                        options.color(0x7fffff00);
-                    } else if (rssi < -100) {
-                        options.color(0x7fff7f00);
-                    } else {
-                        options.color(0x7fff0000);
+                SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+
+                if (myPrefs.getBoolean("lordrive", true)) {
+                    double gwLat = gateway.getDouble("latitude");
+                    double gwLon = gateway.getDouble("longitude");
+                    if (gwLat != 0 && gwLon != 0) {
+                        PolylineOptions options = new PolylineOptions();
+                        options.add(new LatLng(location.getLatitude(), location.getLongitude()));
+                        options.add(new LatLng(gwLat, gwLon));
+                        if (rssi == 0) {
+                            options.color(0x7f000000);
+                        } else if (rssi < -120) {
+                            options.color(0x7f0000ff);
+                        } else if (rssi < -115) {
+                            options.color(0x7f00ffff);
+                        } else if (rssi < -110) {
+                            options.color(0x7f00ff00);
+                        } else if (rssi < -105) {
+                            options.color(0x7fffff00);
+                        } else if (rssi < -100) {
+                            options.color(0x7fff7f00);
+                        } else {
+                            options.color(0x7fff0000);
+                        }
+                        options.width(2);
+                        MyApp myApp = (MyApp) getApplication();
+                        myApp.getLines().add(options);
+                        mMap.addPolyline(options);
+
+                        String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+
+                        if (gatewaysWithMarkers.contains(gatewayId)) {
+                            //already has a marker for this gateway
+                        } else {
+                            MarkerOptions gwoptions = new MarkerOptions();
+                            gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
+                            gwoptions.position(new LatLng(gwLat, gwLon));
+                            gwoptions.title(gatewayId);
+                            gwoptions.anchor((float) 0.5, (float) 0.5);
+                            myApp.getGatewayMarkers().add(gwoptions);
+                            mMap.addMarker(gwoptions);
+
+                            gatewaysWithMarkers.add(gatewayId);
+                        }
+
                     }
-                    options.width(2);
-                    MyApp myApp = (MyApp) getApplication();
-                    myApp.getLines().add(options);
-                    mMap.addPolyline(options);
-
-                    String gwEui= gateway.getString("gateway_eui");
-
-                    if(gatewaysWithMarkers.contains(gwEui))
-                    {
-                        //already has a marker for this gateway
-                    }
-                    else {
-
-                        MarkerOptions gwoptions = new MarkerOptions();
-                        gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
-                        gwoptions.position(new LatLng(gwLat, gwLon));
-                        gwoptions.title(gwEui);
-                        gwoptions.anchor((float) 0.5, (float) 0.5);
-                        myApp.getGatewayMarkers().add(gwoptions);
-                        mMap.addMarker(gwoptions);
-
-                        gatewaysWithMarkers.add(gwEui);
-
-                    }
-
-
                 }
 
             } catch (JSONException e) {
@@ -1041,7 +1021,6 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
 
     }
-
 
     int getNavigationBarHeight() {
         Resources resources = getApplicationContext().getResources();
@@ -1141,84 +1120,38 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
-    void savePacket(Location location, JSONObject mqttJSONdata, String topic) {
-        String gatewayAddr;
-        String time;
-        double freq;
-        String dataRate;
-        double rssi;
-        double snr;
-
+    void savePacket(Location location, JSONObject gateway, JSONObject metadata, String topic) {
         try {
-            if (backend.equals("croft")) {
-                // {"gatewayEui":"00FE34FFFFD30DA7",
-                // "nodeEui":"02017201",
-                // "time":"2016-06-06T01:12:09.101797367Z",
-                // "frequency":868.099975,
-                // "dataRate":"SF7BW125",
-                // "rssi":-46,
-                // "snr":9,
-                // "rawData":"QAFyAQIAxAABJeu0TLc=",
-                // "data":"IQ=="}
+            //metadata fields
+            final String time = metadata.getString(ApiFields.Metadata.TIME);
+            final double frequency = metadata.getDouble(ApiFields.Metadata.FREQUENCY);
+            final String dataRate = metadata.getString(ApiFields.Metadata.DATA_RATE);
 
-                gatewayAddr = mqttJSONdata.getString("gatewayEui");
-                time = mqttJSONdata.getString("time");
-                freq = mqttJSONdata.getDouble("frequency");
-                dataRate = mqttJSONdata.getString("dataRate");
-                rssi = mqttJSONdata.getDouble("rssi");
-                snr = mqttJSONdata.getDouble("snr");
-            } else {
-                //{"frequency":868.1,
-                // "datarate":"SF7BW125",
-                // "codingrate":"4/5",
-                // "gateway_timestamp":472142790,
-                // "gateway_time":"2016-05-01T19:44:53.877604706Z",
-                // "channel":0,
-                // "server_time":"2016-05-01T19:44:53.756166662Z",
-                // "rssi":-66,
-                // "lsnr":10,
-                // "rfchain":0,
-                // "crc":1,
-                // "modulation":"LORA",
-                // "gateway_eui":"B827EBFFFF5FE05C",
-                // "altitude":0,
-                // "longitude":4.63576,
-                // "latitude":52.37447}
-                gatewayAddr = mqttJSONdata.getString("gateway_eui");
-                time = mqttJSONdata.getString("server_time");
-                freq = mqttJSONdata.getDouble("frequency");
-                dataRate = mqttJSONdata.getString("datarate");
-                rssi = mqttJSONdata.getDouble("rssi");
-                snr = mqttJSONdata.getDouble("lsnr");
-            }
-
+            //gateway fields
+            final String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+            final double rssi = gateway.getDouble(ApiFields.Gateway.RSSI);
+            final double snr = gateway.getDouble(ApiFields.Gateway.SNR);
 
             Log.d(TAG, "adding to file");
-    /*
-      02031701
 
-      time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
-     */
-            String data =
-                    time + "," + topic + "," + gatewayAddr + "," +
-                            dataRate + "," + snr + "," + rssi + "," +
-                            freq + "," + location.getLatitude() + "," + location.getLongitude();
+            // time, nodeaddr, gwaddr, datarate, snr, rssi, freq, lat, lon
+            String data = time + "," + topic + "," + gatewayId + "," +
+                          dataRate + "," + snr + "," + rssi + "," +
+                          frequency + "," + location.getLatitude() + "," + location.getLongitude();
 
             // Find the root of the external storage.
-            // See http://developer.android.com/guide/topics/data/data-  storage.html#filesExternal
-
+            // See http://developer.android.com/guide/topics/data/data-storage.html#filesExternal
             File root = android.os.Environment.getExternalStorageDirectory();
             Log.d(TAG, "\nExternal file system root: " + root);
 
             // See http://stackoverflow.com/questions/3551821/android-write-to-sd-card-folder
-
             File dir = new File(root.getAbsolutePath() + "/ttnmapper_logs");
             dir.mkdirs();
             File file = new File(dir, loggingFilename);
 
             try {
-                FileOutputStream f = new FileOutputStream(file, true);
-                PrintWriter pw = new PrintWriter(f);
+                final FileOutputStream f = new FileOutputStream(file, true);
+                final PrintWriter pw = new PrintWriter(f);
                 pw.println(data);
                 pw.flush();
                 pw.close();
@@ -1236,45 +1169,40 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
         }
     }
 
-    void uploadPacket(Location location, JSONObject mqttJSONdata, String devEUI, String appEUI, String topic) {
-        String gatewayAddr;
-        String time;
-        double freq;
-        String dataRate;
-        double rssi;
-        double snr;
-
+    /**
+     * Log the packet to the server.
+     */
+    void uploadPacket(Location location, JSONObject gateway, JSONObject metadata,
+                      String devId, String appId, String topic) {
         try {
+            final JSONObject data = new JSONObject();
 
-            //object for storing Json
-            JSONObject data = new JSONObject();
+            //metadata fields
+            final String time = metadata.getString(ApiFields.Metadata.TIME);
+            final double frequency = metadata.getDouble(ApiFields.Metadata.FREQUENCY);
+            final String dataRate = metadata.getString(ApiFields.Metadata.DATA_RATE);
 
-            if (backend.equals("croft")) {
-                gatewayAddr = mqttJSONdata.getString("gatewayEui");
-                time = mqttJSONdata.getString("time");
-                freq = mqttJSONdata.getDouble("frequency");
-                dataRate = mqttJSONdata.getString("dataRate");
-                rssi = mqttJSONdata.getDouble("rssi");
-                snr = mqttJSONdata.getDouble("snr");
-            } else {
-                gatewayAddr = mqttJSONdata.getString("gateway_eui");
-                time = mqttJSONdata.getString("server_time");
-                freq = mqttJSONdata.getDouble("frequency");
-                dataRate = mqttJSONdata.getString("datarate");
-                rssi = mqttJSONdata.getDouble("rssi");
-                snr = mqttJSONdata.getDouble("lsnr");
-                data.put("appeui", appEUI);
-            }
+            //gateway fields
+            final String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+            final double rssi = gateway.getDouble(ApiFields.Gateway.RSSI);
+            final double snr = gateway.getDouble(ApiFields.Gateway.SNR);
 
             Log.d(TAG, "logging packet to server");
+
+            //set the app and device IDs
+            data.put("appeui", appId);
+            data.put("nodeaddr", devId);
+            data.put("gwaddr", gatewayId);
+
+            //set the app instance ID (https://developers.google.com/instance-id/)
             data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
+
+            //other fields
             data.put("time", time);
-            data.put("nodeaddr", devEUI);
-            data.put("gwaddr", gatewayAddr);
             data.put("datarate", dataRate);
             data.put("snr", snr);
             data.put("rssi", rssi);
-            data.put("freq", freq);
+            data.put("freq", frequency);
             data.put("lat", location.getLatitude());
             data.put("lon", location.getLongitude());
             if (location.hasAltitude()) {
@@ -1288,8 +1216,8 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
 
             //add version name of this app
             try {
-                PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
-                String version = pInfo.versionName;
+                final PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+                final String version = pInfo.versionName;
                 int verCode = pInfo.versionCode;
                 data.put("user_agent", "Android" + android.os.Build.VERSION.RELEASE + " App" + verCode + ":" + version);
             } catch (PackageManager.NameNotFoundException e) {
@@ -1301,6 +1229,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                 data.put("experiment", experimentName);
             }
 
+            //log data to be sent
             String dataString = data.toString();
             System.out.println(dataString);
 
@@ -1340,43 +1269,41 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     }
                 }
             });
-
-        } catch (JSONException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
+        } catch (JSONException | IOException e) {
             e.printStackTrace();
         }
     }
 
-
-    void uploadGateway(JSONObject gateway) {
-        /*
-        {"payload":"IQ==","port":1,"counter":2,"dev_eui":"0000000002017202","metadata":
-        [
-            {"frequency":868.1,"datarate":"SF7BW125","codingrate":"4/5","gateway_timestamp":149785848,"channel":0,"server_time":"2016-06-07T16:19:44.21718223Z","rssi":-46,"lsnr":9,"rfchain":0,"crc":1,"modulation":"LORA","gateway_eui":"00FE34FFFFD30DA7","altitude":0,"longitude":0,"latitude":0}
-        ]}
-         */
+    /**
+     * Log the gateway to the server. This is how the mapper learns about new gateways.
+     */
+    void uploadGateway(JSONObject gateway, JSONObject metadata) {
         try {
-            String gatewayAddr = gateway.getString("gateway_eui");
-            String time = gateway.getString("server_time");
-            double lat = gateway.getDouble("latitude");
-            double lon = gateway.getDouble("longitude");
-            double alt = gateway.getDouble("altitude");
+            //gateway fields
+            final String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+            final double lat = gateway.getDouble(ApiFields.Gateway.LATITUDE);
+            final double lon = gateway.getDouble(ApiFields.Gateway.LONGITUDE);
+            final double alt = gateway.getDouble(ApiFields.Gateway.ALTITUDE);
+
+            //metadata fields
+            final String time = metadata.getString(ApiFields.Metadata.TIME);
 
             Log.d(TAG, "logging gateway to server");
 
-            //object for storing Json
-            JSONObject data = new JSONObject();
+            final JSONObject data = new JSONObject();
             data.put("time", time);
-            data.put("gwaddr", gatewayAddr);
+            data.put("gwaddr", gatewayId);
             data.put("lat", lat);
             data.put("lon", lon);
             data.put("alt", alt);
             data.put("iid", InstanceID.getInstance(getApplicationContext()).getId());
 
+            //log data to be sent
             String dataString = data.toString();
             System.out.println(dataString);
-            String url = "http://ttnmapper.org/api/update_gateway.php";
+
+            //TODO: put URLs in a config class
+            final String url = getString(R.string.api_url) + "update_gateway.php";
 
             //post packet
             postToServer(url, dataString, new Callback() {
@@ -1398,10 +1325,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     }
                 }
             });
-
-        } catch (JSONException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
+        } catch (JSONException | IOException e) {
             e.printStackTrace();
         }
     }

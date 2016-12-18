@@ -41,16 +41,6 @@ public class FirstQuestions extends AppCompatActivity {
             button.setChecked(true);
         }
 
-        //set backend from settings
-        value = myPrefs.getString("backend", "staging");
-        if (value.equalsIgnoreCase("croft")) {
-            RadioButton button = (RadioButton) findViewById(R.id.radioButtonCroft);
-            button.setChecked(true);
-        } else if (value.equalsIgnoreCase("staging")) {
-            RadioButton button = (RadioButton) findViewById(R.id.radioButtonStaging);
-            button.setChecked(true);
-        }
-
         //set experiment default name
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         value = "experiment " + sdf.format(new Date());
@@ -93,15 +83,6 @@ public class FirstQuestions extends AppCompatActivity {
 
         EditText text = (EditText) findViewById(R.id.editTextExperiment);
         prefsEditor.putString("experimentname", text.getText().toString());
-
-        button = (RadioButton) findViewById(R.id.radioButtonCroft);
-        if (button.isChecked()) {
-            prefsEditor.putString("backend", "croft");
-        }
-        button = (RadioButton) findViewById(R.id.radioButtonStaging);
-        if (button.isChecked()) {
-            prefsEditor.putString("backend", "staging");
-        }
 
         prefsEditor.apply();
 

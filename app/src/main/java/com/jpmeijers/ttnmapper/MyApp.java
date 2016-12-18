@@ -70,7 +70,7 @@ public class MyApp extends Application {
     {
         String mqttClientId = MqttClient.generateClientId();
         System.out.println("Server address: " + serverAddress);
-        myMQTTclient = new MqttAndroidClient(this.getApplicationContext(), /*"tcp://staging.thethingsnetwork.org:1883"*/serverAddress/*"tcp://croft.thethings.girovito.nl:1883"*/, mqttClientId);
+        myMQTTclient = new MqttAndroidClient(this.getApplicationContext(), serverAddress, mqttClientId);
     }
 
     public List<MarkerOptions> getMarkers() {

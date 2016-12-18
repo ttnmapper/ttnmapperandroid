@@ -33,38 +33,22 @@ public class SecondQuestions extends AppCompatActivity {
         editTextFilename.setText(filename);
         editTextFilename.setEnabled(value);
 
-        if (myPrefs.getString("backend", "staging").equals("croft")) {
-            TextView textView = (TextView) findViewById(R.id.textViewMQTTdetails);
-            textView.setText("Node address");
+        // Pre-fill region input
+        final EditText regionEditText = (EditText) findViewById(R.id.editTextMQTTregion);
+        String mqttregion = myPrefs.getString("mqttregion", "");
+        regionEditText.setText(mqttregion);
 
-            textView = (TextView) findViewById(R.id.textViewMQTTuser);
-            textView.setText("Address of node transmitting with the default keys");
+        // Pre-fill username field
+        EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
+        String mqttusername = myPrefs.getString("mqttusername", "");
+        editText1.setText(mqttusername);
 
-            EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
-            String address = myPrefs.getString("nodeaddress", "03FFEEBB");
-            editText1.setText(address);
+        // Pre-fill password field
+        editText1 = (EditText) findViewById(R.id.editTextMQTTpassword);
+        String mqttpassword = myPrefs.getString("mqttpassword", "");
+        editText1.setText(mqttpassword);
 
-            textView = (TextView) findViewById(R.id.textViewMQTTpassword);
-            textView.setVisibility(View.INVISIBLE);
-            textView.setHeight(0);
-
-            editText1 = (EditText) findViewById(R.id.editTextMQTTpassword);
-            editText1.setVisibility(View.INVISIBLE);
-            textView.setHeight(0);
-
-            textView = (TextView) findViewById(R.id.textViewCopyDashboard);
-            textView.setVisibility(View.INVISIBLE);
-            textView.setHeight(0);
-        } else {
-            EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
-            String mqttusername = myPrefs.getString("mqttusername", "");
-            editText1.setText(mqttusername);
-
-            editText1 = (EditText) findViewById(R.id.editTextMQTTpassword);
-            String mqttpassword = myPrefs.getString("mqttpassword", "");
-            editText1.setText(mqttpassword);
-        }
-
+        // Set expert mode settings from preferences
         value = myPrefs.getBoolean("expertmode", false);
         CheckBox checkboxExpert = (CheckBox) findViewById(R.id.checkBoxExpert);
         checkboxExpert.setChecked(value);
@@ -74,7 +58,6 @@ public class SecondQuestions extends AppCompatActivity {
         } else {
             startButton.setText("Start");
         }
-
 
         //on click listener for save file
         checkboxFileSave.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -102,7 +85,6 @@ public class SecondQuestions extends AppCompatActivity {
         );
     }
 
-
     public void onStartClick(View view) {
 
         CheckBox checkboxFileSave = (CheckBox) findViewById(R.id.checkBoxSaveFile);
@@ -116,19 +98,17 @@ public class SecondQuestions extends AppCompatActivity {
         prefsEditor.putBoolean("savefile", saveFile);
         prefsEditor.putString("filename", fileName);
 
-        if (myPrefs.getString("backend", "staging").equals("croft")) {
-            EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
-            String nodeAddress = editText1.getText().toString().toUpperCase();
-            prefsEditor.putString("nodeaddress", nodeAddress);
-        } else {
-            EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
-            String mqttusername = editText1.getText().toString().toUpperCase();
-            prefsEditor.putString("mqttusername", mqttusername);
+        final EditText editTextRegion = (EditText) findViewById(R.id.editTextMQTTregion);
+        final String mqttregion = editTextRegion.getText().toString();
+        prefsEditor.putString("mqttregion", mqttregion);
 
-            editText1 = (EditText) findViewById(R.id.editTextMQTTpassword);
-            String mqttpassword = editText1.getText().toString();
-            prefsEditor.putString("mqttpassword", mqttpassword);
-        }
+        EditText editText1 = (EditText) findViewById(R.id.editTextMQTTuser);
+        String mqttusername = editText1.getText().toString();
+        prefsEditor.putString("mqttusername", mqttusername);
+
+        editText1 = (EditText) findViewById(R.id.editTextMQTTpassword);
+        String mqttpassword = editText1.getText().toString();
+        prefsEditor.putString("mqttpassword", mqttpassword);
 
         CheckBox checkboxExpert = (CheckBox) findViewById(R.id.checkBoxExpert);
         boolean expertMode = checkboxExpert.isChecked();
