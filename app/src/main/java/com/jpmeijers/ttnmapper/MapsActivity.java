@@ -896,48 +896,52 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
                     rssi = gateways.getJSONObject(i).getDouble("rssi");
                 }
 
-                double gwLat = gateway.getDouble("latitude");
-                double gwLon = gateway.getDouble("longitude");
-                if (gwLat != 0 && gwLon != 0) {
-                    PolylineOptions options = new PolylineOptions();
-                    options.add(new LatLng(location.getLatitude(), location.getLongitude()));
-                    options.add(new LatLng(gwLat, gwLon));
-                    if (rssi == 0) {
-                        options.color(0x7f000000);
-                    } else if (rssi < -120) {
-                        options.color(0x7f0000ff);
-                    } else if (rssi < -115) {
-                        options.color(0x7f00ffff);
-                    } else if (rssi < -110) {
-                        options.color(0x7f00ff00);
-                    } else if (rssi < -105) {
-                        options.color(0x7fffff00);
-                    } else if (rssi < -100) {
-                        options.color(0x7fff7f00);
-                    } else {
-                        options.color(0x7fff0000);
+                SharedPreferences myPrefs = this.getSharedPreferences("myPrefs", MODE_PRIVATE);
+
+                if (myPrefs.getBoolean("lordrive", true)) {
+                    double gwLat = gateway.getDouble("latitude");
+                    double gwLon = gateway.getDouble("longitude");
+                    if (gwLat != 0 && gwLon != 0) {
+                        PolylineOptions options = new PolylineOptions();
+                        options.add(new LatLng(location.getLatitude(), location.getLongitude()));
+                        options.add(new LatLng(gwLat, gwLon));
+                        if (rssi == 0) {
+                            options.color(0x7f000000);
+                        } else if (rssi < -120) {
+                            options.color(0x7f0000ff);
+                        } else if (rssi < -115) {
+                            options.color(0x7f00ffff);
+                        } else if (rssi < -110) {
+                            options.color(0x7f00ff00);
+                        } else if (rssi < -105) {
+                            options.color(0x7fffff00);
+                        } else if (rssi < -100) {
+                            options.color(0x7fff7f00);
+                        } else {
+                            options.color(0x7fff0000);
+                        }
+                        options.width(2);
+                        MyApp myApp = (MyApp) getApplication();
+                        myApp.getLines().add(options);
+                        mMap.addPolyline(options);
+
+                        String gatewayId = gateway.getString(ApiFields.Gateway.ID);
+
+                        if (gatewaysWithMarkers.contains(gatewayId)) {
+                            //already has a marker for this gateway
+                        } else {
+                            MarkerOptions gwoptions = new MarkerOptions();
+                            gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
+                            gwoptions.position(new LatLng(gwLat, gwLon));
+                            gwoptions.title(gatewayId);
+                            gwoptions.anchor((float) 0.5, (float) 0.5);
+                            myApp.getGatewayMarkers().add(gwoptions);
+                            mMap.addMarker(gwoptions);
+
+                            gatewaysWithMarkers.add(gatewayId);
+                        }
+
                     }
-                    options.width(2);
-                    MyApp myApp = (MyApp) getApplication();
-                    myApp.getLines().add(options);
-                    mMap.addPolyline(options);
-
-                    String gatewayId = gateway.getString(ApiFields.Gateway.ID);
-
-                    if(gatewaysWithMarkers.contains(gatewayId)) {
-                        //already has a marker for this gateway
-                    } else {
-                        MarkerOptions gwoptions = new MarkerOptions();
-                        gwoptions.icon(BitmapDescriptorFactory.fromResource(R.drawable.gateway_dot));
-                        gwoptions.position(new LatLng(gwLat, gwLon));
-                        gwoptions.title(gatewayId);
-                        gwoptions.anchor((float) 0.5, (float) 0.5);
-                        myApp.getGatewayMarkers().add(gwoptions);
-                        mMap.addMarker(gwoptions);
-
-                        gatewaysWithMarkers.add(gatewayId);
-                    }
-
                 }
 
             } catch (JSONException e) {
@@ -1299,7 +1303,7 @@ public class MapsActivity extends AppCompatActivity /*extends FragmentActivity*/
             System.out.println(dataString);
 
             //TODO: put URLs in a config class
-            final String url = "http://ttnmapper.org/api/update_gateway.php";
+            final String url = getString(R.string.api_url) + "update_gateway.php";
 
             //post packet
             postToServer(url, dataString, new Callback() {
